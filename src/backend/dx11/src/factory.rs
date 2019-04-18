@@ -589,7 +589,7 @@ impl core::Factory<R> for Factory {
             }
             layouts.push(d3d11::D3D11_INPUT_ELEMENT_DESC {
                 SemanticName: &charbuf[charpos],
-                SemanticIndex: 0,
+                SemanticIndex: u32::from(attrib.semantic_index),
                 Format: match map_format(elem.format, false) {
                     Some(fm) => fm,
                     None => {
@@ -597,7 +597,7 @@ impl core::Factory<R> for Factory {
                         return Err(core::pso::CreationError);
                     }
                 },
-                InputSlot: attrib.slot as _,
+                InputSlot: attrib.slot as _, // NOTE: gfx_backend_dx11 has a vertex buffer binding per attribute.
                 AlignedByteOffset: elem.offset as _,
                 InputSlotClass: if bdesc.rate == 0 {
                     d3d11::D3D11_INPUT_PER_VERTEX_DATA
