@@ -182,7 +182,7 @@ impl<'a,
     }
     fn link_input(&mut self, at: &shade::AttributeVar, _: &Self::Init) ->
                   Option<Result<pso::AttributeDesc, Format>> {
-        T::query(&at.name).map(|el| {
+        T::query(&format!("{}{}", at.name, at.slot)).map(|el| {
             self.0.link(at, el)
         })
     }
