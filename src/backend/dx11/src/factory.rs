@@ -589,7 +589,7 @@ impl core::Factory<R> for Factory {
             }
             layouts.push(d3d11::D3D11_INPUT_ELEMENT_DESC {
                 SemanticName: &charbuf[charpos],
-                SemanticIndex: 0,
+                SemanticIndex: u32::from(attrib.slot),
                 Format: match map_format(elem.format, false) {
                     Some(fm) => fm,
                     None => {

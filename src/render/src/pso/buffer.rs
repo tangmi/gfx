@@ -182,9 +182,14 @@ impl<'a,
     }
     fn link_input(&mut self, at: &shade::AttributeVar, _: &Self::Init) ->
                   Option<Result<pso::AttributeDesc, Format>> {
-        T::query(&at.name).map(|el| {
-            self.0.link(at, el)
-        })
+        T::query(&at.name)
+            .or_else(|| {
+                // Attempt to search for a vertex attribute that is a semantic plus an index.
+                T::query(&format!("{}{}", at.name, at.slot))
+            })
+            .map(|el| {
+                self.0.link(at, el)
+            })
     }
 }
 
