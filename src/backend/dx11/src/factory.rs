@@ -575,9 +575,9 @@ impl core::Factory<R> for Factory {
         let mut charbuf = [0; 256];
         let mut charpos = 0;
         for (attrib, at_desc) in program.get_info().vertex_attributes.iter().zip(desc.attributes.iter()) {
-            let (buf_index, bdesc, elem) = match at_desc {
-                &Some((buf_index, ref el)) => match desc.vertex_buffers[buf_index as usize] {
-                    Some(ref bd) => (buf_index, bd, el),
+            let (bdesc, elem) = match at_desc {
+                &Some((buf_id, ref el)) => match desc.vertex_buffers[buf_id as usize] {
+                    Some(ref bd) => (bd, el),
                     None => return Err(core::pso::CreationError),
                 },
                 &None => continue,
