@@ -597,7 +597,7 @@ impl core::Factory<R> for Factory {
                         return Err(core::pso::CreationError);
                     }
                 },
-                InputSlot: u32::from(buf_index),
+                InputSlot: attrib.slot as _, // NOTE: gfx_backend_dx11 has a vertex buffer binding per attribute.
                 AlignedByteOffset: elem.offset as _,
                 InputSlotClass: if bdesc.rate == 0 {
                     d3d11::D3D11_INPUT_PER_VERTEX_DATA
@@ -630,34 +630,7 @@ impl core::Factory<R> for Factory {
                 &mut vertex_layout)
         };
         if !winerror::SUCCEEDED(hr) {
-            struct DebugInputLayout<'a> {
-                inner: &'a d3d11::D3D11_INPUT_ELEMENT_DESC,
-            }
-
-            impl<'a> std::fmt::Debug for DebugInputLayout<'a> {
-                fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                    f
-                        .debug_struct("D3D11_INPUT_ELEMENT_DESC")
-                        .field("SemanticName", unsafe { &std::ffi::CStr::from_ptr(self.inner.SemanticName) })
-                        .field("SemanticIndex", &self.inner.SemanticIndex)
-                        .field("Format", &self.inner.Format)
-                        .field("InputSlot", &self.inner.InputSlot)
-                        .field("AlignedByteOffset", &self.inner.AlignedByteOffset)
-                        .field("InputSlotClass", &self.inner.InputSlotClass)
-                        .field("InstanceDataStepRate", &self.inner.InstanceDataStepRate)
-                        .finish()
-                }
-            }
-
-            let layouts: Vec<DebugInputLayout> = layouts
-                .iter()
-                .map(|layout| {
-                    DebugInputLayout { inner: layout }
-                })
-                .collect();
-
-            error!("Failed to create input layout from {:#?}, error {:x}", layouts, hr);
-            return Err(core::pso::CreationError);
+            error!("Failed to create input layout from ?, error {:x}"/*, layouts*/, hr);             return Err(core::pso::CreationError);
         }
         let dummy_dsi = core::pso::DepthStencilInfo { depth: None, front: None, back: None };
         //TODO: cache rasterizer, depth-stencil, and blend states
