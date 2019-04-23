@@ -630,7 +630,8 @@ impl core::Factory<R> for Factory {
                 &mut vertex_layout)
         };
         if !winerror::SUCCEEDED(hr) {
-            error!("Failed to create input layout from ?, error {:x}"/*, layouts*/, hr);             return Err(core::pso::CreationError);
+            error!("Failed to create input layout from ?, error {:x}"/*, layouts*/, hr);
+            return Err(core::pso::CreationError);
         }
         let dummy_dsi = core::pso::DepthStencilInfo { depth: None, front: None, back: None };
         //TODO: cache rasterizer, depth-stencil, and blend states
