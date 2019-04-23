@@ -360,6 +360,8 @@ impl From<Stage> for Usage {
 pub struct AttributeVar {
     /// Name of this attribute.
     pub name: String,
+    /// Semantic index used by DirectX
+    pub semantic_index: u32,
     /// Slot of the vertex attribute.
     pub slot: AttributeSlot,
     /// Type that this attribute is composed of.
