@@ -146,7 +146,7 @@ pub fn populate_info(info: &mut s::ProgramInfo, stage: s::Stage,
             info.vertex_attributes.push(s::AttributeVar {
                 name: name,
                 semantic_index: desc.SemanticIndex,
-                slot: desc.Register as core::AttributeSlot, // We don't specify inputs by register in HLSL?
+                slot: desc.Register as core::AttributeSlot,
                 base_type: map_base_type_from_component(desc.ComponentType),
                 container: mask_to_vector(desc.Mask),
             });
