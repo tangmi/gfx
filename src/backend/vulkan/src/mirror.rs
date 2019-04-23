@@ -280,6 +280,7 @@ pub fn populate_info(info: &mut shade::ProgramInfo, stage: shade::Stage, reflect
                     if let Ty::Basic(base, container) = ty.ty {
                         info.vertex_attributes.push(shade::AttributeVar {
                             name: attrib_name,
+                            semantic_index: 0,
                             slot: slot as core::AttributeSlot,
                             base_type: base,
                             container: container,
