@@ -16,9 +16,20 @@ use core::{MAX_COLOR_TARGETS, ColorSlot};
 use core::state as s;
 use core::state::{BlendValue, Comparison, CullFace, Equation,
                   Offset, RasterMethod, StencilOp, FrontFace};
-use core::target::{ColorValue, Rect, Stencil};
+use core::target::{ColorValue, Level, Rect, Stencil};
 use gl;
 
+pub fn set_framebuffer_texture(gl: &gl::Gl, point: gl::types::GLenum, attachment: gl::types::GLenum, texture: crate::Texture, level: Level, is_embedded: bool) {
+    unsafe {
+        if is_embedded {
+            gl.FramebufferTexture2D(point, attachment, gl::TEXTURE_2D, texture, 
+                                    level as gl::types::GLint);
+        } else {
+            gl.FramebufferTexture(point, attachment, texture,
+                                  level as gl::types::GLint);
+        }
+    }
+}
 
 pub fn bind_raster_method(gl: &gl::Gl, method: s::RasterMethod, offset: Option<s::Offset>) {
     let (gl_draw, gl_offset) = match method {

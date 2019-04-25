@@ -416,10 +416,7 @@ impl Device {
             &TargetView::Surface(surface) => unsafe {
                 gl.FramebufferRenderbuffer(point, attachment, gl::RENDERBUFFER, surface);
             },
-            &TargetView::Texture(texture, level) => unsafe {
-                gl.FramebufferTexture(point, attachment, texture,
-                                      level as gl::types::GLint);
-            },
+            &TargetView::Texture(texture, level) => state::set_framebuffer_texture(gl, point, attachment, texture, level, self.info.version.is_embedded),
             &TargetView::TextureLayer(texture, level, layer) => unsafe {
                 gl.FramebufferTextureLayer(point, attachment, texture,
                                            level as gl::types::GLint,
@@ -430,7 +427,7 @@ impl Device {
 
     fn unbind_target(&mut self, point: gl::types::GLenum, attachment: gl::types::GLenum) {
         let gl = &self.share.context;
-        unsafe { gl.FramebufferTexture(point, attachment, 0, 0) };
+        state::set_framebuffer_texture(gl, point, attachment, 0, 0, self.info.version.is_embedded);
     }
 
     fn reset_state(&mut self) {
@@ -646,13 +643,13 @@ impl Device {
                 }
             },
             Command::CopyTextureToBuffer(ref src, dst, dst_offset, fbo) => {
-                match tex::copy_to_buffer(&self.share.context, src, dst, dst_offset, fbo) {
+                match tex::copy_to_buffer(&self.share.context, src, dst, dst_offset, fbo, self.info.version.is_embedded) {
                     Ok(_) => (),
                     Err(e) => error!("GL: {:?} failed: {:?}", cmd, e)
                 }
             },
             Command::CopyTextureToTexture(ref src, ref dst, fbo) => {
-                match tex::copy_textures(&self.share.context, src, dst, fbo) {
+                match tex::copy_textures(&self.share.context, src, dst, fbo, self.info.version.is_embedded) {
                     Ok(_) => (),
                     Err(e) => error!("GL: {:?} failed: {:?}", cmd, e)
                 }
