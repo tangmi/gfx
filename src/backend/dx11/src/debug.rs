@@ -67,13 +67,20 @@ impl InfoQueue {
                         continue;
                     }
 
-                    warn!(
+                    let formatted = format!(
                         "[{}/{}/{}]: {}",
                         d3d11_message_severity_to_string((*message).Severity),
                         d3d11_message_category_to_string((*message).Category),
                         d3d11_message_id_to_string((*message).ID),
                         std::str::from_utf8(std::slice::from_raw_parts((*message).pDescription as *const u8, (*message).DescriptionByteLength)).unwrap()
                     );
+
+                    match (*message).Severity {
+                        D3D11_MESSAGE_SEVERITY_CORRUPTION | D3D11_MESSAGE_SEVERITY_ERROR => error!("{}", formatted),
+                        D3D11_MESSAGE_SEVERITY_WARNING => warn!("{}", formatted),
+                        D3D11_MESSAGE_SEVERITY_INFO | D3D11_MESSAGE_SEVERITY_MESSAGE => info!("{}", formatted),
+                        _ => unreachable!(),
+                    }
 
                     std::alloc::dealloc(message as *mut _, layout);
                 }
