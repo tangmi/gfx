@@ -773,12 +773,7 @@ fn bind_read_fbo(gl: &gl::Gl, texture: NewTexture, level: t::Level, fbo: FrameBu
                 gl.FramebufferRenderbuffer(target, gl::COLOR_ATTACHMENT0, gl::RENDERBUFFER, s);
             }
             NewTexture::Texture(t) => {
-                if is_embedded {
-                    gl.FramebufferTexture2D(target, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, t as _, level as _);
-                }
-                else {
-                    gl.FramebufferTexture(target, gl::COLOR_ATTACHMENT0, t as _, level as _);
-                }
+                state::set_framebuffer_texture(gl, target, gl::COLOR_ATTACHMENT0, t as _, level as _, is_embedded);
             }
         };
         gl.ReadBuffer(gl::COLOR_ATTACHMENT0);
