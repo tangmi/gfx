@@ -83,6 +83,7 @@ pub enum Command {
     SetBlend(*const ID3D11BlendState, [FLOAT; 4], UINT),
     CopyBuffer(Buffer, Buffer, UINT, UINT, UINT),
     CopyTexture(tex::TextureCopyRegion<Texture>, tex::TextureCopyRegion<Texture>),
+    CopyTextureToBuffer(tex::TextureCopyRegion<Texture>, Buffer, UINT),
     // resource updates
     UpdateBuffer(Buffer, DataPointer, usize),
     UpdateTexture(tex::TextureCopyRegion<Texture>, DataPointer),
@@ -335,11 +336,10 @@ impl<P: 'static + Parser> command::Buffer<Resources> for CommandBuffer<P> {
         unimplemented!()
     }
 
-    #[allow(unused_variables)]
     fn copy_texture_to_buffer(&mut self,
                               src: tex::TextureCopyRegion<Texture>,
                               dst: Buffer, dst_offset_bytes: usize) {
-        unimplemented!()
+        self.parser.parse(Command::CopyTextureToBuffer(src, dst, dst_offset_bytes as UINT))
     }
 
     fn copy_texture_to_texture(&mut self,
