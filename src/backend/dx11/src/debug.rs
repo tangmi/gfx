@@ -68,11 +68,11 @@ impl InfoQueue {
                     }
 
                     let formatted = format!(
-                        "[{}/{}/{}]: {}",
-                        d3d11_message_severity_to_string((*message).Severity),
+                        "{} ({} {}: {})",
+                        std::str::from_utf8(std::slice::from_raw_parts((*message).pDescription as *const u8, (*message).DescriptionByteLength)).unwrap().trim(),
                         d3d11_message_category_to_string((*message).Category),
+                        d3d11_message_severity_to_string((*message).Severity),
                         d3d11_message_id_to_string((*message).ID),
-                        std::str::from_utf8(std::slice::from_raw_parts((*message).pDescription as *const u8, (*message).DescriptionByteLength)).unwrap()
                     );
 
                     match (*message).Severity {
