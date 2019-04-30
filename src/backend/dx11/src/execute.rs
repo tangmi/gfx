@@ -201,11 +201,11 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
         let slice_offset_src = slice * mapped_subresource.DepthPitch as usize;
         let slice_offset_dst = slice * dst_depth_pitch;
 
-        for row in 0..width {
+        for row in 0..height {
             let row_offset_src = slice_offset_src + row * mapped_subresource.RowPitch as usize;
             let row_offset_dst = slice_offset_dst + row * dst_row_pitch;
 
-            for col in 0..height {
+            for col in 0..width {
                 let pixel_offset_src = row_offset_src + col * bytes_per_pixel;
                 let pixel_offset_dst = row_offset_dst + col * bytes_per_pixel;
 
