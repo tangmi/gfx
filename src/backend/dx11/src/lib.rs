@@ -497,13 +497,13 @@ impl core::Device for Deferred {
     ) -> SubmissionResult<h::Fence<Resources>> {
         use core::handle::Producer;
 
-        // Fence will consume texture2d
-        let texture2d = unsafe {
+        // Fence will consume staging_texture
+        let staging_texture = unsafe {
             // must release device
             let mut device: *mut d3d11::ID3D11Device = std::ptr::null_mut();
             (*self.0.context).GetDevice(&mut device);
 
-            let tex_desc = d3d11::D3D11_TEXTURE2D_DESC {
+            let staging_tex_desc = d3d11::D3D11_TEXTURE2D_DESC {
                 Width: 1,
                 Height: 1,
                 MipLevels: 0,
@@ -514,15 +514,31 @@ impl core::Device for Deferred {
                     Quality: 0,
                 },
                 Usage: d3d11::D3D11_USAGE_STAGING,
-                BindFlags: d3d11::D3D11_BIND_RENDER_TARGET,
+                BindFlags: 0,
                 CPUAccessFlags: d3d11::D3D11_CPU_ACCESS_READ,
                 MiscFlags: 0,
             };
 
-            let mut texture2d: *mut d3d11::ID3D11Texture2D = std::ptr::null_mut();
-            let hr = (*device).CreateTexture2D(&tex_desc, std::ptr::null(), &mut texture2d);
+            // unsafe block returns staging_texture
+            let mut staging_texture: *mut d3d11::ID3D11Texture2D = std::ptr::null_mut();
+            let hr = (*device).CreateTexture2D(&staging_tex_desc, std::ptr::null(), &mut staging_texture);
             if !winerror::SUCCEEDED(hr) {
-                panic!("Unable to create texture for fence, error {:x}", hr);
+                panic!("Unable to create staging texture for fence, error {:x}", hr);
+            }
+
+            let render_tex_desc = d3d11::D3D11_TEXTURE2D_DESC{
+                Usage: d3d11::D3D11_USAGE_DEFAULT,
+                BindFlags: d3d11::D3D11_BIND_RENDER_TARGET,
+                CPUAccessFlags: 0,
+                .. 
+                staging_tex_desc
+            };
+
+            // must release render_texture
+            let mut render_texture = std::ptr::null_mut();
+            let hr = (*device).CreateTexture2D(&render_tex_desc, std::ptr::null(), &mut render_texture);
+            if !winerror::SUCCEEDED(hr) {
+                panic!("Unable to create render target texture for fence, error {:x}", hr);
             }
 
             let rtv_desc = d3d11::D3D11_RENDER_TARGET_VIEW_DESC {
@@ -532,9 +548,9 @@ impl core::Device for Deferred {
             };
 
             // must release rtv
-            let mut rtv: *mut d3d11::ID3D11RenderTargetView = std::ptr::null_mut();
+            let mut rtv = std::ptr::null_mut();
             let hr = (*device).CreateRenderTargetView(
-                texture2d as *mut d3d11::ID3D11Resource,
+                render_texture as *mut d3d11::ID3D11Resource,
                 &rtv_desc,
                 &mut rtv,
             );
@@ -545,9 +561,11 @@ impl core::Device for Deferred {
                 );
             }
             (*cb.parser.0).ClearRenderTargetView(rtv, &[1.0, 0.0, 0.0, 1.0]);
+            (*cb.parser.0).CopyResource(staging_texture as *mut _, render_texture as *mut _);
             (*rtv).Release();
+            (*render_texture).Release();
             (*device).Release();
-            (texture2d)
+            staging_texture
         };
 
         // wait for previous fence
@@ -557,7 +575,7 @@ impl core::Device for Deferred {
 
         self.submit(cb, access)?;
 
-        let fence = Fence(native::Texture::D2(texture2d));
+        let fence = Fence(native::Texture::D2(staging_texture));
         Ok(self.0.share.handles.borrow_mut().make_fence(fence))
     }
 
