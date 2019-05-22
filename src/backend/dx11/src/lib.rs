@@ -585,10 +585,12 @@ impl core::Device for Deferred {
 
         // must release immediate_context
         let immediate_context = unsafe {
+            // must release device
             let mut device = std::ptr::null_mut();
             (*self.0.context).GetDevice(&mut device);
             let mut immediate_context = std::ptr::null_mut();
             (*device).GetImmediateContext(&mut immediate_context);
+            (*device).Release();
             immediate_context
         };
 
