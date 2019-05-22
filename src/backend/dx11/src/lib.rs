@@ -496,6 +496,7 @@ impl core::Device for Deferred {
         after: Option<h::Fence<Resources>>,
     ) -> SubmissionResult<h::Fence<Resources>> {
         use core::handle::Producer;
+        use core::SubmissionError;
 
         // Fence will consume staging_texture
         let staging_texture = unsafe {
@@ -523,7 +524,8 @@ impl core::Device for Deferred {
             let mut staging_texture: *mut d3d11::ID3D11Texture2D = std::ptr::null_mut();
             let hr = (*device).CreateTexture2D(&staging_tex_desc, std::ptr::null(), &mut staging_texture);
             if !winerror::SUCCEEDED(hr) {
-                panic!("Unable to create staging texture for fence, error {:x}", hr);
+                error!("Unable to create staging texture for fence, error {:x}", hr);
+                return Err(SubmissionError::FenceCreation);
             }
 
             let render_tex_desc = d3d11::D3D11_TEXTURE2D_DESC{
@@ -538,7 +540,8 @@ impl core::Device for Deferred {
             let mut render_texture = std::ptr::null_mut();
             let hr = (*device).CreateTexture2D(&render_tex_desc, std::ptr::null(), &mut render_texture);
             if !winerror::SUCCEEDED(hr) {
-                panic!("Unable to create render target texture for fence, error {:x}", hr);
+                error!("Unable to create render target texture for fence, error {:x}", hr);
+                return Err(SubmissionError::FenceCreation);
             }
 
             let rtv_desc = d3d11::D3D11_RENDER_TARGET_VIEW_DESC {
@@ -555,10 +558,8 @@ impl core::Device for Deferred {
                 &mut rtv,
             );
             if !winerror::SUCCEEDED(hr) {
-                panic!(
-                    "Unable to create render target view for fence, error {:x}",
-                    hr
-                );
+                error!("Unable to create render target view for fence, error {:x}", hr);
+                return Err(SubmissionError::FenceCreation);
             }
             (*cb.parser.0).ClearRenderTargetView(rtv, &[1.0, 0.0, 0.0, 1.0]);
             (*cb.parser.0).CopyResource(staging_texture as *mut _, render_texture as *mut _);
@@ -608,10 +609,7 @@ impl core::Device for Deferred {
             (*immediate_context).Release();
         }
         if !winerror::SUCCEEDED(hr) {
-            panic!(
-                "Unable to map a texture for fence {:?}, error {:x}",
-                fence, hr
-            );
+            error!("Fence was not awaited: Unable to map a texture for fence {:?}, error {:x}", fence, hr);
         }
     }
 
