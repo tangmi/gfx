@@ -426,7 +426,7 @@ impl core::Device for Device {
             |_, v| unsafe { (*v.0).Release(); }, //RTV
             |_, v| unsafe { (*v.0).Release(); }, //DSV
             |_, v| unsafe { (*v.0).Release(); }, //sampler
-            |_, _fence| {},
+            |_, fence| unsafe { (*(fence.d3d11_resource())).Release(); },
         );
 
         if let Some(ref infoqueue) = self.infoqueue {
