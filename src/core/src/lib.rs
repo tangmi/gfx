@@ -233,13 +233,14 @@ pub trait Resources:          Clone + Hash + Debug + Eq + PartialEq + Any {
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub enum SubmissionError {
     AccessOverlap,
+    FenceCreation,
 }
 
 impl fmt::Display for SubmissionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use self::SubmissionError::*;
         match *self {
-            AccessOverlap => write!(f, "{}", self.description()),
+            _ => write!(f, "{}", self.description()),
         }
     }
 }
@@ -248,7 +249,8 @@ impl Error for SubmissionError {
     fn description(&self) -> &str {
         use self::SubmissionError::*;
         match *self {
-            AccessOverlap => "A resource access overlaps with another"
+            AccessOverlap => "A resource access overlaps with another",
+            FenceCreation => "Failed to create a fence for this submission"
         }
     }
 }
