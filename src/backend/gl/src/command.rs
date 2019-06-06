@@ -15,7 +15,7 @@
 #![allow(missing_docs)]
 
 use gl;
-use core::{self as c, command, state as s};
+use core::{self as c, command, state as s, buffer};
 use core::target::{ColorValue, Depth, Mirror, Rect, Stencil};
 use core::texture::TextureCopyRegion;
 use {Buffer, BufferElement, Program, FrameBuffer, Texture,
@@ -111,7 +111,7 @@ pub enum Command {
                          TextureCopyRegion<Texture>,
                          FrameBuffer),
     // resource updates
-    UpdateBuffer(Buffer, DataPointer, usize),
+    UpdateBuffer(Buffer, DataPointer, usize, buffer::Role),
     UpdateTexture(TextureCopyRegion<Texture>, DataPointer),
     GenerateMipmap(ResourceView),
     // drawing
@@ -587,9 +587,9 @@ impl command::Buffer<Resources> for CommandBuffer {
         }
     }
 
-    fn update_buffer(&mut self, buf: Buffer, data: &[u8], offset_bytes: usize) {
+    fn update_buffer(&mut self, buf: Buffer, data: &[u8], offset_bytes: usize, role: buffer::Role) {
         let ptr = self.data.add(data);
-        self.buf.push(Command::UpdateBuffer(buf, ptr, offset_bytes));
+        self.buf.push(Command::UpdateBuffer(buf, ptr, offset_bytes, role));
     }
 
     fn update_texture(&mut self,

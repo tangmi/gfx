@@ -25,7 +25,7 @@ use winapi::um::d3d11::{
     ID3D11RasterizerState, ID3D11DepthStencilState, ID3D11BlendState,
 };
 
-use core::{command, pso, shade, state, target, texture as tex};
+use core::{command, buffer, pso, shade, state, target, texture as tex};
 use core::{IndexType, VertexCount};
 use core::{MAX_VERTEX_ATTRIBUTES, MAX_CONSTANT_BUFFERS,
            MAX_RESOURCE_VIEWS, MAX_UNORDERED_VIEWS,
@@ -348,7 +348,7 @@ impl<P: 'static + Parser> command::Buffer<Resources> for CommandBuffer<P> {
         self.parser.parse(Command::CopyTexture(src, dst));
     }
 
-    fn update_buffer(&mut self, buf: Buffer, data: &[u8], offset: usize) {
+    fn update_buffer(&mut self, buf: Buffer, data: &[u8], offset: usize, role: buffer::Role) {
         self.parser.update_buffer(buf, data, offset);
     }
 

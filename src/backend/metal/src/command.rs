@@ -344,7 +344,7 @@ impl command::Buffer<Resources> for CommandBuffer {
         unimplemented!()
     }
 
-    fn update_buffer(&mut self, buf: Buffer, data: &[u8], offset: usize) {
+    fn update_buffer(&mut self, buf: Buffer, data: &[u8], offset: usize, _: buffer::Role) {
         use map::{map_buffer_usage};
 
         debug_assert!(!unsafe { *(*(buf.0).0) }.is_null(), "Buffer must be non-nil");
