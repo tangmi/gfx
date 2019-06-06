@@ -26,7 +26,7 @@ use std::cell::RefCell;
 use std::error::Error as StdError;
 use std::fmt;
 use std::rc::Rc;
-use core::{self as c, handle, state as s, format, pso, texture, command as com, buffer};
+use core::{self as c, handle, state as s, format, pso, texture, command as com};
 use core::target::{Layer, Level};
 use command::{Command, DataBuffer};
 use factory::MappingKind;
@@ -654,10 +654,10 @@ impl Device {
                     Err(e) => error!("GL: {:?} failed: {:?}", cmd, e)
                 }
             },
-            Command::UpdateBuffer(buffer, pointer, offset) => {
+            Command::UpdateBuffer(buffer, pointer, offset, role) => {
                 let data = data_buf.get(pointer);
                 factory::update_sub_buffer(&self.share.context, buffer,
-                    data.as_ptr(), data.len(), offset, buffer::Role::Vertex);
+                    data.as_ptr(), data.len(), offset, role);
             },
             Command::UpdateTexture(ref dst, pointer) => {
                 let data = data_buf.get(pointer);

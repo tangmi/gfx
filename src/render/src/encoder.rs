@@ -420,7 +420,7 @@ impl<R: Resources, C: command::Buffer<R>> Encoder<R, C> {
         if bound <= buf.get_info().size {
             self.command_buffer.update_buffer(
                 self.handles.ref_buffer(buf.raw()).clone(),
-                cast_slice(data), offset_bytes);
+                cast_slice(data), offset_bytes, buf.get_info().role);
             Ok(())
         } else {
             Err(UpdateError::OutOfBounds {
@@ -440,7 +440,7 @@ impl<R: Resources, C: command::Buffer<R>> Encoder<R, C> {
             slice::from_raw_parts(data as *const T as *const u8, mem::size_of::<T>())
         };
         self.command_buffer.update_buffer(
-            self.handles.ref_buffer(buf.raw()).clone(), slice, 0);
+            self.handles.ref_buffer(buf.raw()).clone(), slice, 0, buf.get_info().role);
     }
 
     /// Update the contents of a texture.
