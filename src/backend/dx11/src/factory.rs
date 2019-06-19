@@ -587,10 +587,10 @@ impl core::Factory<R> for Factory {
                     attrib.name, elem.offset);
                 return Err(core::pso::CreationError);
             }
-            let attribute_name: VertexSemantic = attrib.name.as_str().into();
+            let vertex_semantic: VertexSemantic = attrib.name.as_str().into();
             layouts.push(d3d11::D3D11_INPUT_ELEMENT_DESC {
                 SemanticName: &charbuf[charpos],
-                SemanticIndex: attribute_name.index,
+                SemanticIndex: vertex_semantic.index,
                 Format: match map_format(elem.format, false) {
                     Some(fm) => fm,
                     None => {
@@ -607,7 +607,7 @@ impl core::Factory<R> for Factory {
                 },
                 InstanceDataStepRate: bdesc.rate as _,
             });
-            for (out, inp) in charbuf[charpos..].iter_mut().zip(attribute_name.name.as_bytes().iter()) {
+            for (out, inp) in charbuf[charpos..].iter_mut().zip(vertex_semantic.name.as_bytes().iter()) {
                 *out = *inp as i8;
             }
             charpos += attrib.name.as_bytes().len() + 1;
@@ -1078,16 +1078,16 @@ impl Into<String> for VertexSemantic<'_> {
 }
 
 #[cfg(test)]
-mod vertex_attribute_name_tests {
+mod vertex_semantic_tests {
     use super::*;
 
     #[test]
     fn pack() {
-        let attribute_name = VertexSemantic {
+        let vertex_semantic = VertexSemantic {
             name: "TEST",
             index: 1,
         };
-        let packed: String = attribute_name.into();
+        let packed: String = vertex_semantic.into();
         assert_eq!("TEST1", packed);
     }
 
