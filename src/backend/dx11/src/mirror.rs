@@ -144,8 +144,10 @@ pub fn populate_info(info: &mut s::ProgramInfo, stage: s::Stage,
             }
             let name = convert_str(desc.SemanticName);
             info.vertex_attributes.push(s::AttributeVar {
-                name: name,
-                semantic_index: desc.SemanticIndex,
+                name: crate::factory::VertexSemantic {
+                    name: &name,
+                    index: desc.SemanticIndex
+                }.into(),
                 slot: desc.Register as core::AttributeSlot,
                 base_type: map_base_type_from_component(desc.ComponentType),
                 container: mask_to_vector(desc.Mask),

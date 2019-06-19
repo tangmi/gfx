@@ -202,7 +202,6 @@ fn query_attributes(gl: &gl::Gl, prog: super::Program) -> Vec<s::AttributeVar> {
         }
         s::AttributeVar {
             name: real_name,
-            semantic_index: 0,
             slot: loc as c::AttributeSlot,
             base_type: base,
             container: container,

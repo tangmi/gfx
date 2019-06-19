@@ -41,7 +41,6 @@ pub fn populate_vertex_attributes(info: &mut shade::ProgramInfo,
 
         info.vertex_attributes.push(shade::AttributeVar {
             name: attr.name().into(),
-            semantic_index: 0,
             slot: attr.attribute_index() as core::AttributeSlot,
             base_type: map_base_type(attr.attribute_type()),
             container: map_container_type(attr.attribute_type()),
