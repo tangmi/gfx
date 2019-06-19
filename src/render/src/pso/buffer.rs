@@ -184,8 +184,12 @@ impl<'a,
                   Option<Result<pso::AttributeDesc, Format>> {
         T::query(&at.name)
             .or_else(|| {
-                // Attempt to search for a vertex attribute that is a semantic plus an index.
-                T::query(&format!("{}{}", at.name, at.slot))
+                // Hack: if the DX11 backend implicitly adds semantic index 0, try removing it, in case the user didn't explicitly call out the implied semantic index in their pipeline definition.
+                if at.name.ends_with('0') {
+                    T::query(&at.name[..(at.name.len() - 1)])
+                } else {
+                    None
+                }
             })
             .map(|el| {
                 self.0.link(at, el)
