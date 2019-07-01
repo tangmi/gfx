@@ -27,7 +27,7 @@ impl InfoQueue {
                     &mut infoqueue
                 );
                 
-                if winerror::FAILED(hresult) {
+                if !winerror::SUCCEEDED(hresult) {
                     warn!("could not QueryInterface for IID_ID3D11InfoQueue");
                     None
                 } else {
@@ -52,7 +52,7 @@ impl InfoQueue {
                     let mut message_byte_length: winapi::shared::basetsd::SIZE_T = 0;
                     let hresult = (*infoqueue).GetMessage(i, std::ptr::null_mut(), &mut message_byte_length);
 
-                    if winerror::FAILED(hresult) {
+                    if !winerror::SUCCEEDED(hresult) {
                         warn!("Couldn't retrieve size for InfoQueue message!");
                         continue;
                     }
@@ -61,7 +61,7 @@ impl InfoQueue {
                     let mut message = std::alloc::alloc(layout) as *mut D3D11_MESSAGE;
 
                     let hresult = (*infoqueue).GetMessage(i, message, &mut message_byte_length);
-                    if winerror::FAILED(hresult) {
+                    if !winerror::SUCCEEDED(hresult) {
                         warn!("Couldn't retrieve InfoQueue message!");
                         std::alloc::dealloc(message as *mut _, layout);
                         continue;
