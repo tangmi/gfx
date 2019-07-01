@@ -18,7 +18,7 @@ use std::ops::Deref;
 use std::collections::hash_set::{self, HashSet};
 use {Resources, IndexType, InstanceCount, VertexCount,
      SubmissionResult, SubmissionError};
-use {state, target, pso, shade, texture, handle};
+use {state, target, pso, shade, texture, handle, buffer};
 
 /// A universal clear color supporting integet formats
 /// as well as the standard floating-point.
@@ -82,7 +82,7 @@ pub trait Buffer<R: Resources>: 'static + Send {
                                src: texture::TextureCopyRegion<R::Texture>,
                                dst: texture::TextureCopyRegion<R::Texture>);
     /// Update a vertex/index/uniform buffer
-    fn update_buffer(&mut self, R::Buffer, data: &[u8], offset: usize);
+    fn update_buffer(&mut self, R::Buffer, data: &[u8], offset: usize, role: buffer::Role);
     /// Update a texture
     fn update_texture(&mut self, texture::TextureCopyRegion<R::Texture>, data: &[u8]);
     fn generate_mipmap(&mut self, R::ShaderResourceView);

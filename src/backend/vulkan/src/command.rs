@@ -15,7 +15,7 @@
 use std::{mem, ptr};
 use std::collections::hash_map::{HashMap, Entry};
 use vk;
-use core::{self, pso, shade, target, texture as tex, handle};
+use core::{self, pso, shade, target, texture as tex, handle, buffer};
 use core::command::{self, AccessInfo, AccessGuard};
 use core::state::RefValues;
 use core::{IndexType, VertexCount, SubmissionResult};
@@ -262,7 +262,7 @@ impl command::Buffer<Resources> for Buffer {
         unimplemented!()
     }
 
-    fn update_buffer(&mut self, _: native::Buffer, _: &[u8], _: usize) {}
+    fn update_buffer(&mut self, _: native::Buffer, _: &[u8], _: usize, _: buffer::Role) {}
     fn update_texture(&mut self, _: tex::TextureCopyRegion<native::Texture>, _: &[u8]) {}
     fn generate_mipmap(&mut self, _: native::TextureView) {}
 

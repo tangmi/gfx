@@ -16,7 +16,7 @@
 //! outside of the graphics development environment.
 
 use {Capabilities, Device, SubmissionResult, Resources, IndexType, VertexCount};
-use {state, target, handle, mapping, pso, shade, texture};
+use {state, target, handle, mapping, pso, shade, texture, buffer};
 use command::{self, AccessInfo};
 
 /// Dummy device which does minimal work, just to allow testing
@@ -105,7 +105,7 @@ impl command::Buffer<DummyResources> for DummyCommandBuffer {
     fn copy_texture_to_texture(&mut self,
                                _: texture::TextureCopyRegion<()>,
                                _: texture::TextureCopyRegion<()>) {}
-    fn update_buffer(&mut self, _: (), _: &[u8], _: usize) {}
+    fn update_buffer(&mut self, _: (), _: &[u8], _: usize, _: buffer::Role) {}
     fn update_texture(&mut self, _: texture::TextureCopyRegion<()>, _: &[u8]) {}
     fn generate_mipmap(&mut self, _: ()) {}
     fn clear_color(&mut self, _: (), _: command::ClearColor) {}

@@ -752,7 +752,7 @@ fn tex_sub_image<F>(gl: &gl::Gl, kind: t::Kind, target: GLenum, pix: GLenum,
     })
 }
 
-fn bind_read_fbo(gl: &gl::Gl, texture: NewTexture, level: t::Level, fbo: FrameBuffer) {
+fn bind_read_fbo(gl: &gl::Gl, texture: NewTexture, level: t::Level, fbo: FrameBuffer, is_embedded: bool) {
     let target = gl::READ_FRAMEBUFFER;
     if texture == NewTexture::Surface(0) {
         //Warning: assuming the back buffer
@@ -773,7 +773,7 @@ fn bind_read_fbo(gl: &gl::Gl, texture: NewTexture, level: t::Level, fbo: FrameBu
                 gl.FramebufferRenderbuffer(target, gl::COLOR_ATTACHMENT0, gl::RENDERBUFFER, s);
             }
             NewTexture::Texture(t) => {
-                gl.FramebufferTexture(target, gl::COLOR_ATTACHMENT0, t as _, level as _);
+                state::set_framebuffer_texture(gl, target, gl::COLOR_ATTACHMENT0, t as _, level as _, is_embedded);
             }
         };
         gl.ReadBuffer(gl::COLOR_ATTACHMENT0);
@@ -808,6 +808,7 @@ pub fn copy_to_buffer(
     src: &t::TextureCopyRegion<NewTexture>,
     dst: Buffer, dst_offset: gl::types::GLintptr,
     fbo: FrameBuffer,
+    is_embedded: bool,
 ) -> Result<(), t::CreationError> {
     let data = dst_offset as *mut GLvoid;
     unsafe { gl.BindBuffer(gl::PIXEL_PACK_BUFFER, dst); }
@@ -846,7 +847,7 @@ pub fn copy_to_buffer(
         }
         _ => {
             assert!(src.info.depth <= 1);
-            bind_read_fbo(gl, src.texture, src.info.mipmap, fbo);
+            bind_read_fbo(gl, src.texture, src.info.mipmap, fbo, is_embedded);
             unsafe {
                 gl.ReadPixels(
                     src.info.xoffset as _,
@@ -865,8 +866,9 @@ pub fn copy_to_buffer(
 pub fn copy_textures(
     gl: &gl::Gl, src: &t::TextureCopyRegion<NewTexture>,
     dst: &t::TextureCopyRegion<Texture>, fbo: FrameBuffer,
+    is_embedded: bool,
 ) -> Result<(), t::CreationError> {
-    bind_read_fbo(gl, src.texture, src.info.mipmap, fbo);
+    bind_read_fbo(gl, src.texture, src.info.mipmap, fbo, is_embedded);
     let bind_target = kind_to_gl(dst.kind);
     unsafe { gl.BindTexture(bind_target, dst.texture); }
     let copy_target = match dst.cube_face {
