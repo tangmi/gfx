@@ -86,11 +86,16 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
                 src: &tex::TextureCopyRegion<Texture>,
                 dst: &Buffer,
                 dst_offset: UINT) {
+    use crate::com_ptr::ComPtr;
+    use crate::try_log;
+    use winapi::shared::winerror;
+
     let (src_slice, src_front) = match src.kind.get_num_slices() {
         Some(_) => { assert!(src.info.depth <= 1); (src.info.zoffset, 0) },
         None => (0, src.info.zoffset),
     };
 
+    // TODO only supports full copies?
     let src_box = d3d11::D3D11_BOX {
         left: src.info.xoffset as _,
         right: (src.info.xoffset + src.info.width) as _,
@@ -104,52 +109,50 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
                                               src.kind.get_num_levels() as _,
                                               src_slice as _);
     
-    // Must release
-    let immediate_context = unsafe {
-        let mut device = std::ptr::null_mut();
-        (*context).GetDevice(&mut device);
-        let mut immediate_context = std::ptr::null_mut();
-        (*device).GetImmediateContext(&mut immediate_context);
-        (*device).Release();
-        immediate_context
-    };
+    unsafe {
+        let device = ComPtr::create_with(|mut ptr| {
+            (*context).GetDevice(&mut ptr);
+            winerror::S_OK
+        })
+        // Note: GetDevice does not fail
+        .unwrap();
 
-    // Copy src texture to a new staging texture
-    // Must release
-    let staging_texture = unsafe {
-        let mut device = std::ptr::null_mut();
-        (*context).GetDevice(&mut device);
+        let immediate_context = ComPtr::create_with(|mut ptr| {
+            device.GetImmediateContext(&mut ptr);
+            winerror::S_OK
+        })
+        // Note: GetImmediateContext does not fail
+        .unwrap();
 
-        // Creating staging texture
-        let mut staging_texture = std::ptr::null_mut();
-        let hresult = (*device).CreateTexture2D(
-            &d3d11::D3D11_TEXTURE2D_DESC {
-                Width: u32::from(src.info.width),
-                Height: u32::from(src.info.height),
-                MipLevels: 1,
-                ArraySize: 1,
-                Format: crate::data::map_format(src.info.format, false).unwrap(),
-                SampleDesc: winapi::shared::dxgitype::DXGI_SAMPLE_DESC {
-                    Count: 1,
-                    Quality: 0,
-                },
-                Usage: d3d11::D3D11_USAGE_STAGING,
-                BindFlags: 0,
-                CPUAccessFlags: d3d11::D3D11_CPU_ACCESS_READ,
-                MiscFlags: 0,
-            },
-            std::ptr::null(),
-            &mut staging_texture,
+        // Copy src texture to a new staging texture
+        let mut staging_texture = try_log!(
+            "create staging texture",
+            ComPtr::create_with(|mut ptr| {
+                device.CreateTexture2D(
+                    &d3d11::D3D11_TEXTURE2D_DESC {
+                        Width: u32::from(src.info.width),
+                        Height: u32::from(src.info.height),
+                        MipLevels: 1,
+                        ArraySize: 1,
+                        Format: crate::data::map_format(src.info.format, false).expect("valid format combination"),                
+                        SampleDesc: winapi::shared::dxgitype::DXGI_SAMPLE_DESC {
+                            Count: 1,
+                            Quality: 0,
+                        },
+                        Usage: d3d11::D3D11_USAGE_STAGING,
+                        BindFlags: 0,
+                        CPUAccessFlags: d3d11::D3D11_CPU_ACCESS_READ,
+                        MiscFlags: 0,
+                    },
+                    std::ptr::null(),
+                    &mut ptr,
+                )
+            })
         );
-        (*device).Release();
-        if !SUCCEEDED(hresult) {
-            error!("Failed to create staging texture, error {:x}", hresult);
-            return;
-        }
 
         // Copying src to staging
-        (*immediate_context).CopySubresourceRegion(
-            staging_texture as *mut winapi::um::d3d11::ID3D11Resource,
+        immediate_context.CopySubresourceRegion(
+            staging_texture.as_ptr() as *mut winapi::um::d3d11::ID3D11Resource,
             0,
             0, 0, 0,
             src.texture.as_resource(),
@@ -158,93 +161,81 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
             // &src_box,
         );
 
-        staging_texture
-    };
-
-    // Read staging texture to CPU
-    let mut mapped_subresource: d3d11::D3D11_MAPPED_SUBRESOURCE = unsafe { std::mem::zeroed() };
-    let hresult = unsafe {
-        (*immediate_context).Map(
-            staging_texture as *mut winapi::um::d3d11::ID3D11Resource,
+        // Read staging texture to CPU
+        // Must unmap
+        let mut mapped_subresource: d3d11::D3D11_MAPPED_SUBRESOURCE = std::mem::zeroed();
+        let hresult = immediate_context.Map(
+            staging_texture.as_ptr() as *mut winapi::um::d3d11::ID3D11Resource,
             0,
             d3d11::D3D11_MAP_READ,
             0,
             &mut mapped_subresource,
-        )
-    };
-    if !SUCCEEDED(hresult) {
-        error!("Failed to map staging texture, error {:x}", hresult);
-        unsafe {
-            (*staging_texture).Release();
-            (*immediate_context).Release();
+        );
+        if !SUCCEEDED(hresult) {
+            error!("Failed to map staging texture, error {:x}", hresult);
+            return;
         }
-        return;
-    }
 
-    let bytes_per_pixel = (src.info.format.0.get_total_bits() / 8) as usize;
-    let width = src.info.width as usize;
-    let height = src.info.height as usize;
-    let depth = cmp::max(1, src.info.depth as usize);
+        let bytes_per_pixel = (src.info.format.0.get_total_bits() / 8) as usize;
+        let width = src.info.width as usize;
+        let height = src.info.height as usize;
+        let depth = cmp::max(1, src.info.depth as usize);
 
-    let dst_depth_pitch = width * height * bytes_per_pixel;
-    let dst_row_pitch = width * bytes_per_pixel;
+        let dst_depth_pitch = width * height * bytes_per_pixel;
+        let dst_row_pitch = width * bytes_per_pixel;
 
-    let buffer_len = depth * dst_depth_pitch;
-    let mut data = Vec::with_capacity(buffer_len);
-    data.resize_with(buffer_len, Default::default);
+        let buffer_len = depth * dst_depth_pitch;
+        let mut data = Vec::with_capacity(buffer_len);
+        data.resize_with(buffer_len, Default::default);
 
-    let src = mapped_subresource.pData as *const u8;
-    assert!(!src.is_null());
+        let src = mapped_subresource.pData as *const u8;
+        assert!(!src.is_null());
 
-    // Copying mapped data to CPU
-    for slice in 0..depth {
-        let slice_offset_src = slice * mapped_subresource.DepthPitch as usize;
-        let slice_offset_dst = slice * dst_depth_pitch;
+        // Copying mapped data to CPU
+        for slice in 0..depth {
+            let slice_offset_src = slice * mapped_subresource.DepthPitch as usize;
+            let slice_offset_dst = slice * dst_depth_pitch;
 
-        for row in 0..height {
-            let row_offset_src = slice_offset_src + row * mapped_subresource.RowPitch as usize;
-            let row_offset_dst = slice_offset_dst + row * dst_row_pitch;
+            for row in 0..height {
+                let row_offset_src = slice_offset_src + row * mapped_subresource.RowPitch as usize;
+                let row_offset_dst = slice_offset_dst + row * dst_row_pitch;
 
-            for col in 0..width {
-                let pixel_offset_src = row_offset_src + col * bytes_per_pixel;
-                let pixel_offset_dst = row_offset_dst + col * bytes_per_pixel;
+                for col in 0..width {
+                    let pixel_offset_src = row_offset_src + col * bytes_per_pixel;
+                    let pixel_offset_dst = row_offset_dst + col * bytes_per_pixel;
 
-                for byte in 0..bytes_per_pixel {
-                    unsafe {
+                    for byte in 0..bytes_per_pixel {
                         data[pixel_offset_dst + byte] = src.offset((pixel_offset_src + byte) as isize).read_unaligned();
                     }
                 }
             }
         }
-    }
 
-    unsafe {
-        (*immediate_context).Unmap(staging_texture as *mut winapi::um::d3d11::ID3D11Resource, 0);
+        immediate_context.Unmap(staging_texture.as_ptr() as *mut winapi::um::d3d11::ID3D11Resource, 0);
         (*staging_texture).Release();
-    }
 
-    unsafe {
         // Copying CPU data to staging buffer
-        let mut device = std::ptr::null_mut();
-        (*immediate_context).GetDevice(&mut device);
-        let mut staging_buffer = std::ptr::null_mut();
-        (*device).CreateBuffer(
-            &d3d11::D3D11_BUFFER_DESC {
-                ByteWidth: buffer_len as _,
-                Usage: d3d11::D3D11_USAGE_STAGING,
-                BindFlags: 0,
-                CPUAccessFlags: d3d11::D3D11_CPU_ACCESS_WRITE,
-                MiscFlags: 0,
-                StructureByteStride: 1,
-            },
-            &d3d11::D3D11_SUBRESOURCE_DATA {
-                pSysMem: data.as_ptr() as *const _,
-                SysMemPitch: buffer_len as _,
-                SysMemSlicePitch: buffer_len as _,
-            },
-            &mut staging_buffer,
+        let mut staging_buffer = try_log!(
+            "create staging buffer",
+            ComPtr::create_with(|mut ptr| {
+                device.CreateBuffer(
+                    &d3d11::D3D11_BUFFER_DESC {
+                        ByteWidth: buffer_len as _,
+                        Usage: d3d11::D3D11_USAGE_STAGING,
+                        BindFlags: 0,
+                        CPUAccessFlags: d3d11::D3D11_CPU_ACCESS_WRITE,
+                        MiscFlags: 0,
+                        StructureByteStride: 1,
+                    },
+                    &d3d11::D3D11_SUBRESOURCE_DATA {
+                        pSysMem: data.as_ptr() as *const _,
+                        SysMemPitch: buffer_len as _,
+                        SysMemSlicePitch: buffer_len as _,
+                    },
+                    &mut ptr,
+                )
+            })
         );
-        (*device).Release();
 
         // Copying staging buffer to dst buffer
         let src_box = d3d11::D3D11_BOX {
@@ -255,22 +246,16 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
             front: 0,
             back: 1,
         };
-        unsafe {
-            (*immediate_context).CopySubresourceRegion(
-                dst.as_resource(),
-                0,
-                dst_offset, 0, 0,
-                staging_buffer as *mut winapi::um::d3d11::ID3D11Resource,
-                0,
-                &src_box)
-        };
+
+        immediate_context.CopySubresourceRegion(
+            dst.as_resource(),
+            0,
+            dst_offset, 0, 0,
+            staging_buffer.as_ptr() as *mut winapi::um::d3d11::ID3D11Resource,
+            0,
+            &src_box)
 
         // update_buffer(immediate_context, dst, data.as_slice(), dst_offset as usize);
-        (*staging_buffer).Release();
-    }
-
-    unsafe {
-        (*immediate_context).Release();
     }
 }
 

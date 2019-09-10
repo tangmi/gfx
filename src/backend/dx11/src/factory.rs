@@ -1061,8 +1061,8 @@ impl<'s> From<&'s str> for VertexSemantic<'s> {
             !char::is_ascii_digit(&c)
         }
 
-        // Note: a semantic name can't be just numeric, so this will succeed if called correctly.
-        let partition_index = packed.rfind(is_not_ascii_digit).map(|i| i + 1).unwrap();
+        // Note: a semantic name can't be just numeric, so this will succeed if called with a valid semanic.
+        let partition_index = packed.rfind(is_not_ascii_digit).map(|i| i + 1).expect("valid semantic");
 
         Self {
             name: &packed[..partition_index],
