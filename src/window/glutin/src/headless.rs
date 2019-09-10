@@ -93,14 +93,16 @@ mod tests {
 
     #[test]
     fn test_headless() {
-        use glutin::{ContextBuilder, EventsLoop};
+        use glutin::ContextBuilder;
+        use glutin::event_loop::EventLoop;
+        use std::ops::Deref;
 
         let dim = (256, 256, 8, AaMode::Multi(4));
 
-        let events_loop = EventsLoop::new();
+        let event_loop = EventLoop::new();
         let context = ContextBuilder::new()
             .with_hardware_acceleration(Some(false))
-            .build_headless(&events_loop, (dim.0 as u32, dim.1 as u32).into())
+            .build_headless(event_loop.deref(), (dim.0 as u32, dim.1 as u32).into())
             .expect("Failed to build headless context");
 
         let (_, mut device, _, _, _) = init_headless::<Rgba8, DepthStencil>(context, dim);
