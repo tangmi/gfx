@@ -110,15 +110,15 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
                                               src_slice as _);
     
     unsafe {
-        let device = ComPtr::create_with(|ptr| {
-            (*context).GetDevice(ptr);
+        let device = ComPtr::create_with(|out_ptr| {
+            (*context).GetDevice(out_ptr);
             winerror::S_OK
         })
         // Note: GetDevice does not fail
         .unwrap();
 
-        let immediate_context = ComPtr::create_with(|ptr| {
-            device.GetImmediateContext(ptr);
+        let immediate_context = ComPtr::create_with(|out_ptr| {
+            device.GetImmediateContext(out_ptr);
             winerror::S_OK
         })
         // Note: GetImmediateContext does not fail
@@ -127,7 +127,7 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
         // Copy src texture to a new staging texture
         let mut staging_texture = try_log!(
             "create staging texture",
-            ComPtr::create_with(|ptr| {
+            ComPtr::create_with(|out_ptr| {
                 device.CreateTexture2D(
                     &d3d11::D3D11_TEXTURE2D_DESC {
                         Width: u32::from(src.info.width),
@@ -145,7 +145,7 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
                         MiscFlags: 0,
                     },
                     std::ptr::null(),
-                    ptr,
+                    out_ptr,
                 )
             })
         );
@@ -217,7 +217,7 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
         // Copying CPU data to staging buffer
         let mut staging_buffer = try_log!(
             "create staging buffer",
-            ComPtr::create_with(|ptr| {
+            ComPtr::create_with(|out_ptr| {
                 device.CreateBuffer(
                     &d3d11::D3D11_BUFFER_DESC {
                         ByteWidth: buffer_len as _,
@@ -232,7 +232,7 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
                         SysMemPitch: buffer_len as _,
                         SysMemSlicePitch: buffer_len as _,
                     },
-                    ptr,
+                    out_ptr,
                 )
             })
         );
