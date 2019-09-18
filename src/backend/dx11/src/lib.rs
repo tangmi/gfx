@@ -501,8 +501,8 @@ impl core::Device for Deferred {
         use com_ptr::ComPtr;
 
         unsafe {
-            let device = ComPtr::create_with(|mut ptr| {
-                (*self.0.context).GetDevice(&mut ptr);
+            let device = ComPtr::create_with(|out_ptr| {
+                (*self.0.context).GetDevice(out_ptr);
                 winerror::S_OK
             })
             // Note GetDevice does not fail.
@@ -523,8 +523,8 @@ impl core::Device for Deferred {
                 CPUAccessFlags: d3d11::D3D11_CPU_ACCESS_READ,
                 MiscFlags: 0,
             };
-            let mut staging_texture = ComPtr::create_with(|mut ptr| {
-                device.CreateTexture2D(&staging_tex_desc, std::ptr::null(), &mut ptr)
+            let mut staging_texture = ComPtr::create_with(|out_ptr| {
+                device.CreateTexture2D(&staging_tex_desc, std::ptr::null(), out_ptr)
             }).map_err(|hr| {
                 error!("Unable to create staging texture for fence, error {:x}", hr);
                 SubmissionError::FenceCreation
@@ -537,8 +537,8 @@ impl core::Device for Deferred {
                 .. 
                 staging_tex_desc
             };
-            let mut render_texture = ComPtr::create_with(|mut ptr| {
-                device.CreateTexture2D(&render_tex_desc, std::ptr::null(), &mut ptr)
+            let mut render_texture = ComPtr::create_with(|out_ptr| {
+                device.CreateTexture2D(&render_tex_desc, std::ptr::null(), out_ptr)
             }).map_err(|hr| {
                 error!("Unable to create render target texture for fence, error {:x}", hr);
                 SubmissionError::FenceCreation
@@ -549,11 +549,11 @@ impl core::Device for Deferred {
                 ViewDimension: d3d11::D3D11_RTV_DIMENSION_TEXTURE2D,
                 u: std::mem::transmute([0, 0, 0]), // Factory also does this to create RTVs
             };
-            let mut rtv = ComPtr::create_with(|mut ptr| {
+            let mut rtv = ComPtr::create_with(|out_ptr| {
                 device.CreateRenderTargetView(
                     render_texture.as_ptr() as *mut d3d11::ID3D11Resource,
                     &rtv_desc,
-                    &mut ptr,
+                    out_ptr,
                 )
             }).map_err(|hr| {
                 error!("Unable to create render target view for fence, error {:x}", hr);
@@ -581,15 +581,15 @@ impl core::Device for Deferred {
         let resource = fence.resource().d3d11_resource();
 
         unsafe {
-            let device = ComPtr::create_with(|mut ptr| {
-                (*self.0.context).GetDevice(&mut ptr);
+            let device = ComPtr::create_with(|out_ptr| {
+                (*self.0.context).GetDevice(out_ptr);
                 winerror::S_OK
             })
             // Note GetDevice does not fail.
             .unwrap();
 
-            let immediate_context = ComPtr::create_with(|mut ptr| {
-                device.GetImmediateContext(&mut ptr);
+            let immediate_context = ComPtr::create_with(|out_ptr| {
+                device.GetImmediateContext(out_ptr);
                 winerror::S_OK
             })
             // Note: GetImmediateContext does not fail
