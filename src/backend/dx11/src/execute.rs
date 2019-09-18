@@ -96,7 +96,7 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
     };
 
     // TODO only supports full copies?
-    let src_box = d3d11::D3D11_BOX {
+    let _src_box = d3d11::D3D11_BOX {
         left: src.info.xoffset as _,
         right: (src.info.xoffset + src.info.width) as _,
         top: src.info.yoffset as _,
@@ -105,7 +105,7 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
         back: (src_front + cmp::max(1, src.info.depth)) as _,
     };
 
-    let src_sub = d3d11::D3D11CalcSubresource(src.info.mipmap as _,
+    let _src_sub = d3d11::D3D11CalcSubresource(src.info.mipmap as _,
                                               src.kind.get_num_levels() as _,
                                               src_slice as _);
     
@@ -212,7 +212,6 @@ fn copy_texture_to_buffer(context: *mut d3d11::ID3D11DeviceContext,
         }
 
         immediate_context.Unmap(staging_texture.as_ptr() as *mut winapi::um::d3d11::ID3D11Resource, 0);
-        (*staging_texture).Release();
 
         // Copying CPU data to staging buffer
         let mut staging_buffer = try_log!(
