@@ -30,9 +30,9 @@ where
         ptr
     }
 
-    pub unsafe fn create_with(f: impl FnOnce(*mut T) -> HRESULT) -> Result<Self, HRESULT> {
-        let new_ptr = ptr::null_mut();
-        let hr = f(new_ptr);
+    pub unsafe fn create_with(f: impl FnOnce(&mut *mut T) -> HRESULT) -> Result<Self, HRESULT> {
+        let mut new_ptr = ptr::null_mut();
+        let hr = f(&mut new_ptr);
         if !winerror::SUCCEEDED(hr) {
             Err(hr)
         } else {
