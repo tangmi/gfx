@@ -27,6 +27,7 @@ pub use self::data::map_format;
 pub use self::factory::Factory;
 
 mod debug;
+mod com_ptr;
 mod command;
 mod data;
 mod execute;
@@ -497,13 +498,16 @@ impl core::Device for Deferred {
     ) -> SubmissionResult<h::Fence<Resources>> {
         use core::handle::Producer;
         use core::SubmissionError;
+        use com_ptr::ComPtr;
 
-        // Fence will consume staging_texture
-        let staging_texture = unsafe {
-            // must release device
-            let mut device: *mut d3d11::ID3D11Device = std::ptr::null_mut();
-            (*self.0.context).GetDevice(&mut device);
-
+        unsafe {
+            let device = ComPtr::create_with(|out_ptr| {
+                (*self.0.context).GetDevice(out_ptr);
+                winerror::S_OK
+            })
+            // Note GetDevice does not fail.
+            .unwrap();
+            
             let staging_tex_desc = d3d11::D3D11_TEXTURE2D_DESC {
                 Width: 1,
                 Height: 1,
@@ -519,14 +523,12 @@ impl core::Device for Deferred {
                 CPUAccessFlags: d3d11::D3D11_CPU_ACCESS_READ,
                 MiscFlags: 0,
             };
-
-            // unsafe block returns staging_texture
-            let mut staging_texture: *mut d3d11::ID3D11Texture2D = std::ptr::null_mut();
-            let hr = (*device).CreateTexture2D(&staging_tex_desc, std::ptr::null(), &mut staging_texture);
-            if !winerror::SUCCEEDED(hr) {
+            let mut staging_texture = ComPtr::create_with(|out_ptr| {
+                device.CreateTexture2D(&staging_tex_desc, std::ptr::null(), out_ptr)
+            }).map_err(|hr| {
                 error!("Unable to create staging texture for fence, error {:x}", hr);
-                return Err(SubmissionError::FenceCreation);
-            }
+                SubmissionError::FenceCreation
+            })?;
 
             let render_tex_desc = d3d11::D3D11_TEXTURE2D_DESC{
                 Usage: d3d11::D3D11_USAGE_DEFAULT,
@@ -535,83 +537,75 @@ impl core::Device for Deferred {
                 .. 
                 staging_tex_desc
             };
-
-            // must release render_texture
-            let mut render_texture = std::ptr::null_mut();
-            let hr = (*device).CreateTexture2D(&render_tex_desc, std::ptr::null(), &mut render_texture);
-            if !winerror::SUCCEEDED(hr) {
+            let mut render_texture = ComPtr::create_with(|out_ptr| {
+                device.CreateTexture2D(&render_tex_desc, std::ptr::null(), out_ptr)
+            }).map_err(|hr| {
                 error!("Unable to create render target texture for fence, error {:x}", hr);
-                return Err(SubmissionError::FenceCreation);
-            }
+                SubmissionError::FenceCreation
+            })?;
 
             let rtv_desc = d3d11::D3D11_RENDER_TARGET_VIEW_DESC {
                 Format: winapi::shared::dxgiformat::DXGI_FORMAT_R8G8B8A8_UNORM,
                 ViewDimension: d3d11::D3D11_RTV_DIMENSION_TEXTURE2D,
                 u: std::mem::transmute([0, 0, 0]), // Factory also does this to create RTVs
             };
-
-            // must release rtv
-            let mut rtv = std::ptr::null_mut();
-            let hr = (*device).CreateRenderTargetView(
-                render_texture as *mut d3d11::ID3D11Resource,
-                &rtv_desc,
-                &mut rtv,
-            );
-            if !winerror::SUCCEEDED(hr) {
+            let mut rtv = ComPtr::create_with(|out_ptr| {
+                device.CreateRenderTargetView(
+                    render_texture.as_ptr() as *mut d3d11::ID3D11Resource,
+                    &rtv_desc,
+                    out_ptr,
+                )
+            }).map_err(|hr| {
                 error!("Unable to create render target view for fence, error {:x}", hr);
-                return Err(SubmissionError::FenceCreation);
+                SubmissionError::FenceCreation
+            })?;
+
+            (*cb.parser.0).ClearRenderTargetView(rtv.as_ptr(), &[1.0, 0.0, 0.0, 1.0]);
+            (*cb.parser.0).CopyResource(staging_texture.as_ptr() as *mut _, render_texture.as_ptr() as *mut _);
+
+            // wait for previous fence
+            if let Some(fence_after) = after {
+                self.wait_fence(&fence_after);
             }
-            (*cb.parser.0).ClearRenderTargetView(rtv, &[1.0, 0.0, 0.0, 1.0]);
-            (*cb.parser.0).CopyResource(staging_texture as *mut _, render_texture as *mut _);
-            (*rtv).Release();
-            (*render_texture).Release();
-            (*device).Release();
-            staging_texture
-        };
 
-        // wait for previous fence
-        if let Some(fence_after) = after {
-            self.wait_fence(&fence_after);
+            self.submit(cb, access)?;
+
+            let fence = Fence(native::Texture::D2(staging_texture.forget()));
+            Ok(self.0.share.handles.borrow_mut().make_fence(fence))
         }
-
-        self.submit(cb, access)?;
-
-        let fence = Fence(native::Texture::D2(staging_texture));
-        Ok(self.0.share.handles.borrow_mut().make_fence(fence))
     }
 
     fn wait_fence(&mut self, fence: &h::Fence<Self::Resources>) {
+        use com_ptr::ComPtr;
+
         let resource = fence.resource().d3d11_resource();
 
-        // must release immediate_context
-        let immediate_context = unsafe {
-            // must release device
-            let mut device = std::ptr::null_mut();
-            (*self.0.context).GetDevice(&mut device);
-            let mut immediate_context = std::ptr::null_mut();
-            (*device).GetImmediateContext(&mut immediate_context);
-            (*device).Release();
-            immediate_context
-        };
-
-        let mut subresource = d3d11::D3D11_MAPPED_SUBRESOURCE {
-            pData: ptr::null_mut(),
-            RowPitch: 0,
-            DepthPitch: 0,
-        };
-
-        let hr = unsafe {
-            (*immediate_context).Map(resource, 0, d3d11::D3D11_MAP_READ, 0, &mut subresource)
-        };
-
         unsafe {
-            if winerror::SUCCEEDED(hr) {
-                (*immediate_context).Unmap(resource, 0);
+            let device = ComPtr::create_with(|out_ptr| {
+                (*self.0.context).GetDevice(out_ptr);
+                winerror::S_OK
+            })
+            // Note GetDevice does not fail.
+            .unwrap();
+
+            let immediate_context = ComPtr::create_with(|out_ptr| {
+                device.GetImmediateContext(out_ptr);
+                winerror::S_OK
+            })
+            // Note: GetImmediateContext does not fail
+            .unwrap();
+
+            let mut subresource = d3d11::D3D11_MAPPED_SUBRESOURCE {
+                pData: ptr::null_mut(),
+                RowPitch: 0,
+                DepthPitch: 0,
+            };
+            let hr = immediate_context.Map(resource, 0, d3d11::D3D11_MAP_READ, 0, &mut subresource);
+            if !winerror::SUCCEEDED(hr) {
+                error!("Fence was not awaited: Unable to map a texture for fence {:?}, error {:x}", fence, hr);
+                return;
             }
-            (*immediate_context).Release();
-        }
-        if !winerror::SUCCEEDED(hr) {
-            error!("Fence was not awaited: Unable to map a texture for fence {:?}, error {:x}", fence, hr);
+            immediate_context.Unmap(resource, 0);
         }
     }
 
