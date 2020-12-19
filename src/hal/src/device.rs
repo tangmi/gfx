@@ -12,7 +12,7 @@
 //! and is used to actually do things.
 
 use crate::{
-    buffer, format, image,
+    acceleration_structure, buffer, format, image,
     memory::{Requirements, Segment},
     pass,
     pool::CommandPoolCreateFlags,
@@ -734,6 +734,38 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
         flags: query::ResultFlags,
     ) -> Result<bool, WaitError>;
 
+    /// Create an acceleration structure object.
+    unsafe fn create_acceleration_structure(
+        &self,
+        desc: &acceleration_structure::AccelerationStructureDesc<B>,
+    ) -> Result<B::AccelerationStructure, OutOfMemory>;
+
+    /// Destroy an acceleration structure object.
+    unsafe fn destroy_acceleration_structure(
+        &self,
+        acceleration_structure: B::AccelerationStructure,
+    );
+
+    /// Get the size requirements for the buffers needed to build an acceleration structure.
+    unsafe fn get_acceleration_structure_build_requirements(
+        &self,
+        // used for host operations
+        // build_type: acceleration_structure::HostOrDevice,
+        build_info: &acceleration_structure::AccelerationStructureGeometryDesc<B>,
+        // must be a parallel array to `build_info.geometries` containing the primitive counts for each geometry.
+        max_primitives_count: &[u32],
+    ) -> acceleration_structure::AccelerationStructureSizeRequirements;
+
+    // TODO these are used for host operations, which DX12 does not support.
+    // - build_acceleration_structures
+    // - copy_acceleration_structure
+    // - copy_acceleration_structure_to_memory
+    // - copy_memory_to_acceleration_structure
+    // - write_acceleration_structures_properties
+
+    // TODO for checking if a serialized blob is valid with the current driver version. DX12 docs say this is for PIX tooling and building a as from scratch is "likely to be faster than loading one from disk" (https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_raytracing_acceleration_structure_copy_mode). The Vulkan spec/literature doesn't mention perf implications of serialization.
+    // - get_device_acceleration_structure_compatibility
+
     /// Wait for all queues associated with this device to idle.
     ///
     /// Host access to all queues needs to be **externally** sycnhronized!
@@ -774,4 +806,11 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
     /// Associate a name with a pipeline layout, for easier debugging in external tools or with
     /// validation layers that can print a friendly name when referring to objects in error messages
     unsafe fn set_pipeline_layout_name(&self, pipeline_layout: &mut B::PipelineLayout, name: &str);
+    /// Associate a name with an acceleration structure, for easier debugging in external tools or with
+    /// validation layers that can print a friendly name when referring to objects in error messages
+    unsafe fn set_acceleration_structure_name(
+        &self,
+        acceleration_structure: &mut B::AccelerationStructure,
+        name: &str,
+    );
 }

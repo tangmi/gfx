@@ -17,7 +17,7 @@ mod clear;
 mod structs;
 
 use crate::{
-    buffer,
+    acceleration_structure, buffer,
     image::{Filter, Layout, SubresourceRange},
     memory::{Barrier, Dependencies},
     pass, pso, query, Backend, DrawCount, IndexCount, IndexType, InstanceCount, TaskCount,
@@ -603,6 +603,46 @@ pub trait CommandBuffer<B: Backend>: fmt::Debug + Any + Send + Sync {
 
     /// Requests a timestamp to be written.
     unsafe fn write_timestamp(&mut self, stage: pso::PipelineStage, query: query::Query<B>);
+
+    /// TODO docs
+    /// `build_range_infos` must be the same length as `infos` and each element must have a length equal to the parallel `info` entry's `geometries.len()`. there's probably a way to make this safer without mangling the api shape too much...
+    unsafe fn build_acceleration_structures(
+        &self,
+        infos: &[acceleration_structure::AccelerationStructureGeometryDesc<B>],
+        build_range_infos: &[&[acceleration_structure::AccelerationStructureBuildRangeDesc]],
+    );
+
+    /// TODO docs
+    /// `indirect_device_addresses` is an array of infoCount buffer device addresses which point to infos[i]->geometryCount VkAccelerationStructureBuildRangeInfoKHR structures defining dynamic offsets to the addresses where geometry data is stored, as defined by infos[i].
+    unsafe fn build_acceleration_structures_indirect(
+        &self,
+        infos: &[acceleration_structure::AccelerationStructureGeometryDesc<B>],
+
+        indirect_device_addresses: &[(B::Buffer, buffer::Offset)],
+        indirect_strides: &[u32],
+        max_primitive_counts: &[&u32],
+    );
+
+    /// TODO docs
+    unsafe fn copy_acceleration_structure(
+        &self,
+        src: B::AccelerationStructure,
+        dst: B::AccelerationStructure,
+        mode: acceleration_structure::AccelerationStructureCopyMode,
+    );
+
+    // for host ops?
+    // - copy_acceleration_structure_to_memory
+    // - copy_memory_to_acceleration_structure
+
+    /// TODO docs
+    unsafe fn write_acceleration_structures_properties(
+        &self,
+        structures: &[B::AccelerationStructure],
+        query_type: query::Type,
+        pool: &B::QueryPool,
+        first_query: u32,
+    );
 
     /// Modify constant data in a graphics pipeline. Push constants are intended to modify data in a
     /// pipeline more quickly than a updating the values inside a descriptor set.

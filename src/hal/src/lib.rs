@@ -48,6 +48,7 @@ extern crate serde;
 
 use std::{any::Any, fmt, hash::Hash};
 
+pub mod acceleration_structure;
 pub mod adapter;
 pub mod buffer;
 pub mod command;
@@ -261,6 +262,19 @@ bitflags! {
         const TASK_SHADER = 0x0001 << 96;
         /// Supports mesh shader stage.
         const MESH_SHADER = 0x0002 << 96;
+
+        /// Supports acceleration structures.
+        const ACCELERATION_STRUCTURE = 0x0001 << 112;
+        // TODO Is this the right place to put these features?
+
+        // TODO "capture replay" is a vulkan term, which seems to be covered by PIX and AS (de)serialization on the DX side... should this just be an impl detail of gfx and not be exposed to end-users?
+        // const ACCELERATION_STRUCTURE_CAPTURE_REPLAY = 0x0001 << 112;
+        // TODO this is probably a good idea and supported on both APIs
+        // const ACCELERATION_STRUCTURE_CAPTURE_INDIRECT_BUILD = 0x0001 << 112;
+        // TODO this could be a way to gate this feature
+        // const ACCELERATION_STRUCTURE_CAPTURE_HOST_OPERATIONS = 0x0001 << 112;
+        // TODO this is not supported for other resource types yet
+        // const ACCELERATION_STRUCTURE_UPDATE_AFTER_BIND = 0x0001 << 112;
     }
 }
 
@@ -462,6 +476,22 @@ pub struct Limits {
     /// The granularity with which mesh outputs qualified as per-primitive are allocated. The value can be used to
     /// compute the memory size used by the mesh shader, which must be less than or equal to
     pub mesh_output_per_primitive_granularity: u32,
+
+    /// The maximum number of geometries in a bottom level acceleration structure.
+    pub max_acceleration_structure_bottom_level_geometry_count: u64,
+    /// The maximum number of instances in a top level acceleration structure.
+    pub max_acceleration_structure_top_level_instance_count: u64,
+    /// The maximum total number of triangles or AABBs in all geometries in a bottom level acceleration structure.
+    pub max_acceleration_structure_bottom_level_total_primitive_count: u64,
+    /// The maximum number of acceleration structure bindings that can be accessible to a single shader stage in a pipeline layout.
+    pub max_per_stage_descriptor_acceleration_structures: u32,
+    ///    
+    pub max_descriptor_set_acceleration_structures: u32,
+    /// The minimum alignment in bytes for scratch data passed in to an acceleration structure build command.
+    pub min_acceleration_structure_scratch_offset_alignment: u32,
+    // TODO since we don't use `vk::DescriptorSetLayoutCreateFlags`, I'm leaving this out
+    // pub max_per_stage_descriptor_update_after_bind_acceleration_structures: u32,
+    // pub max_descriptor_set_update_after_bind_acceleration_structures: u32,
 }
 
 /// An enum describing the type of an index value in a slice's index buffer
@@ -631,4 +661,8 @@ pub trait Backend: 'static + Sized + Eq + Clone + Hash + fmt::Debug + Any + Send
     type Event: fmt::Debug + Any + Send + Sync;
     /// The corresponding query pool type for this backend.
     type QueryPool: fmt::Debug + Any + Send + Sync;
+
+    /// The corresponding acceleration structure type for this backend.
+    // TODO: This probably corresponds to `()` on DX12, since there's no handle for acceleration structures on DX12
+    type AccelerationStructure: fmt::Debug + Any + Send + Sync;
 }
