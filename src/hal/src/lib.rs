@@ -265,14 +265,15 @@ bitflags! {
 
         /// Supports acceleration structures.
         const ACCELERATION_STRUCTURE = 0x0001 << 112;
-        // TODO Is this the right place to put these features?
+
+        // TODO Is this the right place to put these features? These are derived from `VkPhysicalDeviceAccelerationStructureFeaturesKHR`.
 
         // TODO "capture replay" is a vulkan term, which seems to be covered by PIX and AS (de)serialization on the DX side... should this just be an impl detail of gfx and not be exposed to end-users?
         // const ACCELERATION_STRUCTURE_CAPTURE_REPLAY = 0x0001 << 112;
         // TODO this is probably a good idea and supported on both APIs
-        // const ACCELERATION_STRUCTURE_CAPTURE_INDIRECT_BUILD = 0x0001 << 112;
+        // const ACCELERATION_STRUCTURE_INDIRECT_BUILD = 0x0001 << 112;
         // TODO this could be a way to gate this feature
-        // const ACCELERATION_STRUCTURE_CAPTURE_HOST_OPERATIONS = 0x0001 << 112;
+        // const ACCELERATION_STRUCTURE_HOST_OPERATIONS = 0x0001 << 112;
         // TODO this is not supported for other resource types yet
         // const ACCELERATION_STRUCTURE_UPDATE_AFTER_BIND = 0x0001 << 112;
     }

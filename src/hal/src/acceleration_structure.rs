@@ -49,7 +49,6 @@ bitflags! {
     }
 }
 
-/// TODO docs
 #[derive(Debug)]
 pub enum AccelerationStructureCreateMode {
     /// specifies that the destination acceleration structure will be built using the specified geometries.
@@ -62,6 +61,7 @@ pub enum AccelerationStructureCreateMode {
 /// A description of the geometry data needed to populate an acceleration structure.
 ///
 /// TODO: there's something here that smells w/ what fields are needed to get the required build size vs what fields are needed to actually build. Also, the top/bottom levels having different requirements on which fields are valid.
+// TODO: I don't like that this is reused for the "get build sizes" and "do actual build" with complex rules on what fields are ignored when. Perhaps we could use DX12's model for `D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC` and `D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS` and move at least the src/dst fields onto the actual "build acceleration structure" command.?
 #[derive(Debug)]
 pub struct AccelerationStructureGeometryDesc<'a, B: Backend> {
     pub flags: AccelerationStructureFlags,
@@ -91,31 +91,24 @@ bitflags! {
     }
 }
 
-/// TODO docs
 #[derive(Debug)]
 pub struct AccelerationStructureGeometry<'a, B: Backend> {
     pub flags: AccelerationStructureGeometryFlags,
     pub geometry: Geometry<'a, B>,
 }
 
-/// TODO docs
 #[derive(Debug)]
 pub enum Geometry<'a, B: Backend> {
-    /// TODO docs
     Triangles(GeometryTriangles<'a, B>),
 
-    /// TODO docs
     /// TODO bikeshed capitalization of AABBs.
     Aabbs(GeometryAabbs<'a, B>),
 
-    // TODO
-    /// TODO docs
     Instances(GeometryInstances<'a, B>),
 }
 
 // https://www.khronos.org/registry/vulkan/specs/1.2-extensions/man/html/VkAccelerationStructureGeometryTrianglesDataKHR.html
 // for docs: Memory Safety (https://nvpro-samples.github.io/vk_raytracing_tutorial_KHR/#accelerationstructure)
-// TODO: I don't like that this is reused for the "get build sizes" and "do actual build" with complex rules on what fields are ignored when. Perhaps we could use DX12's model for `D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC` and `D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS`?
 #[derive(Debug)]
 pub struct GeometryTriangles<'a, B: Backend> {
     /// Both APIs require support for at least the following:
@@ -160,7 +153,6 @@ pub struct GeometryAabbs<'a, B: Backend> {
     pub buffer_stride: Offset,
 }
 
-// TODO doc
 #[derive(Debug)]
 pub struct AabbPositions {
     /// Use `mint::Vector3` if available.
