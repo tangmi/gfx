@@ -605,35 +605,62 @@ pub trait CommandBuffer<B: Backend>: fmt::Debug + Any + Send + Sync {
     unsafe fn write_timestamp(&mut self, stage: pso::PipelineStage, query: query::Query<B>);
 
     /// TODO docs
-    /// `build_range_infos` must be the same length as `infos` and each element must have a length equal to the parallel `info` entry's `geometries.len()`. there's probably a way to make this safer without mangling the api shape too much...
-    unsafe fn build_acceleration_structures(
-        &self,
-        infos: &[acceleration_structure::AccelerationStructureGeometryDesc<B>],
-        build_range_infos: &[&[acceleration_structure::AccelerationStructureBuildRangeDesc]],
-    );
+    unsafe fn build_acceleration_structures<'a, I>(&self, descs: I)
+    where
+        I: IntoIterator<
+            Item = (
+                &'a acceleration_structure::BuildDesc<'a, B>,
+                // BuildRangeDesc array len must equal BuildDesc.geometry.geometries' len
+                &'a [acceleration_structure::BuildRangeDesc],
+            ),
+        >,
+        I::IntoIter: ExactSizeIterator;
 
-    /// TODO docs
-    /// `indirect_device_addresses` is an array of infoCount buffer device addresses which point to infos[i]->geometryCount VkAccelerationStructureBuildRangeInfoKHR structures defining dynamic offsets to the addresses where geometry data is stored, as defined by infos[i].
-    unsafe fn build_acceleration_structures_indirect(
-        &self,
-        infos: &[acceleration_structure::AccelerationStructureGeometryDesc<B>],
-
-        indirect_device_addresses: &[(B::Buffer, buffer::Offset)],
-        indirect_strides: &[u32],
-        max_primitive_counts: &[&u32],
-    );
+    /// Indirect version of `build_acceleration_structures`.
+    ///
+    /// TODO better docs
+    unsafe fn build_acceleration_structures_indirect<'a, I>(&self, descs: I)
+    where
+        I: IntoIterator<
+            Item = (
+                &'a acceleration_structure::BuildDesc<'a, B>,
+                // `indirect_device_address` is a buffer device address that points to BuildDesc.geometry.geometries.len() BuildRangeDesc structures defining dynamic offsets to the addresses where geometry data is stored, as defined by BuildDesc.
+                &'a B::Buffer,
+                buffer::Offset,
+                buffer::Offset, // stride
+                // max_primitive_counts is an array of BuildDesc.geometry.geometries.len() values indicating the maximum number of primitives that will be built by this command for each geometry.
+                &'a [u32],
+            ),
+        >,
+        I::IntoIter: ExactSizeIterator;
 
     /// TODO docs
     unsafe fn copy_acceleration_structure(
         &self,
         src: B::AccelerationStructure,
         dst: B::AccelerationStructure,
-        mode: acceleration_structure::AccelerationStructureCopyMode,
+        mode: acceleration_structure::CopyMode,
     );
 
-    // for host ops?
-    // - copy_acceleration_structure_to_memory
-    // - copy_memory_to_acceleration_structure
+    /// TODO docs
+    unsafe fn copy_acceleration_structure_to_memory(
+        &self,
+        src: B::AccelerationStructure,
+        // TODO(cpu-repr)
+        dst_buffer: &B::Buffer,
+        dst_offset: buffer::Offset,
+        mode: acceleration_structure::CopyMode,
+    );
+
+    /// TODO docs
+    unsafe fn copy_memory_to_acceleration_structure(
+        &self,
+        // TODO(cpu-repr)
+        src_buffer: &B::Buffer,
+        src_offset: buffer::Offset,
+        dst: B::AccelerationStructure,
+        mode: acceleration_structure::CopyMode,
+    );
 
     /// TODO docs
     unsafe fn write_acceleration_structures_properties(

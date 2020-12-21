@@ -70,6 +70,7 @@ pub enum Type {
     /// Timestamp query. Timestamps can be recorded to the
     /// query pool by calling `write_timestamp()`.
     Timestamp,
+    // TODO(as-serialization)
     /// TODO docs
     AccelerationStructureCompactedSize,
     /// TODO docs
