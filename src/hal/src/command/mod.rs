@@ -637,15 +637,15 @@ pub trait CommandBuffer<B: Backend>: fmt::Debug + Any + Send + Sync {
     /// TODO docs
     unsafe fn copy_acceleration_structure(
         &self,
-        src: B::AccelerationStructure,
-        dst: B::AccelerationStructure,
+        src: &B::AccelerationStructure,
+        dst: &B::AccelerationStructure,
         mode: acceleration_structure::CopyMode,
     );
 
     /// TODO docs
     unsafe fn copy_acceleration_structure_to_memory(
         &self,
-        src: B::AccelerationStructure,
+        src: &B::AccelerationStructure,
         // TODO(cpu-repr)
         dst_buffer: &B::Buffer,
         dst_offset: buffer::Offset,
@@ -658,14 +658,14 @@ pub trait CommandBuffer<B: Backend>: fmt::Debug + Any + Send + Sync {
         // TODO(cpu-repr)
         src_buffer: &B::Buffer,
         src_offset: buffer::Offset,
-        dst: B::AccelerationStructure,
+        dst: &B::AccelerationStructure,
         mode: acceleration_structure::CopyMode,
     );
 
     /// TODO docs
     unsafe fn write_acceleration_structures_properties(
         &self,
-        structures: &[B::AccelerationStructure],
+        structures: &[&B::AccelerationStructure],
         query_type: query::Type,
         pool: &B::QueryPool,
         first_query: u32,
