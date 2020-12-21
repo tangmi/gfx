@@ -1,6 +1,10 @@
 //! TODO docs
 
-use crate::{buffer::Offset, format::Format, Backend, IndexType};
+use crate::{
+    buffer::{Offset, Stride},
+    format::Format,
+    Backend, IndexType,
+};
 
 /// Denotes the type of acceleration structure.
 #[derive(Debug)]
@@ -138,7 +142,7 @@ pub struct GeometryTriangles<'a, B: Backend> {
     /// The offset into `vertex_buffer` pointing to the start of the vertex data.
     pub vertex_buffer_offset: Offset,
     /// The space between vertices in `vertex_buffer`.
-    pub vertex_buffer_stride: Offset,
+    pub vertex_buffer_stride: Stride,
 
     /// The index of the last vertex addressed by a build command using this geometry.
     pub max_vertex: Offset,
@@ -173,7 +177,7 @@ pub struct GeometryAabbs<'a, B: Backend> {
     pub buffer_offset: Offset,
 
     /// The stride of the AABB data in `buffer`.
-    pub buffer_stride: Offset,
+    pub buffer_stride: Stride,
 }
 
 /// An axis-aligned bounding box.
