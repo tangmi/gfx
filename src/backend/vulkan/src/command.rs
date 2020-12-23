@@ -1069,6 +1069,79 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
         )
     }
 
+    unsafe fn build_acceleration_structures<'a, I>(&self, descs: I)
+    where
+        I: IntoIterator<
+            Item = &'a(
+                &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
+                // BuildRangeDesc array len must equal BuildDesc.geometry.geometries' len
+                &'a [hal::acceleration_structure::BuildRangeDesc],
+            ),
+        >,
+        I::IntoIter: ExactSizeIterator,
+    {
+        todo!()
+    }
+
+    unsafe fn build_acceleration_structures_indirect<'a, I>(&self, descs: I)
+    where
+        I: IntoIterator<
+            Item = &'a(
+                &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
+                // `indirect_device_address` is a buffer device address that points to BuildDesc.geometry.geometries.len() BuildRangeDesc structures defining dynamic offsets to the addresses where geometry data is stored, as defined by BuildDesc.
+                &'a n::Buffer,
+                buffer::Offset,
+                buffer::Offset, // stride
+                // max_primitive_counts is an array of BuildDesc.geometry.geometries.len() values indicating the maximum number of primitives that will be built by this command for each geometry.
+                &'a [u32],
+            ),
+        >,
+        I::IntoIter: ExactSizeIterator,
+    {
+        todo!()
+    }
+
+    unsafe fn copy_acceleration_structure(
+        &self,
+        src: &n::AccelerationStructure,
+        dst: &n::AccelerationStructure,
+        mode: hal::acceleration_structure::CopyMode,
+    ) {
+        todo!()
+    }
+
+    unsafe fn copy_acceleration_structure_to_memory(
+        &self,
+        src: &n::AccelerationStructure,
+        // TODO(cpu-repr)
+        dst_buffer: &n::Buffer,
+        dst_offset: buffer::Offset,
+        mode: hal::acceleration_structure::CopyMode,
+    ) {
+        todo!()
+    }
+
+    unsafe fn copy_memory_to_acceleration_structure(
+        &self,
+        // TODO(cpu-repr)
+        src_buffer: &n::Buffer,
+        src_offset: buffer::Offset,
+        dst: &n::AccelerationStructure,
+        mode: hal::acceleration_structure::CopyMode,
+    ) {
+        todo!()
+    }
+
+    unsafe fn write_acceleration_structures_properties(
+        &self,
+        structures: &[&n::AccelerationStructure],
+        query_type: query::Type,
+        pool: &n::QueryPool,
+        first_query: u32,
+    ) {
+        todo!()
+    }
+
     unsafe fn push_compute_constants(
         &mut self,
         layout: &n::PipelineLayout,

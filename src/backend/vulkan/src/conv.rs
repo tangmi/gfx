@@ -197,6 +197,9 @@ pub fn map_descriptor_type(ty: pso::DescriptorType) -> vk::DescriptorType {
             },
         },
         pso::DescriptorType::InputAttachment => vk::DescriptorType::INPUT_ATTACHMENT,
+        pso::DescriptorType::AccelerationStructure => {
+            todo!()
+        }
     }
 }
 
@@ -495,6 +498,49 @@ pub(crate) fn map_device_features(features: Features) -> crate::DeviceCreationFe
         } else {
             None
         },
+        buffer_device_address: if features.intersects(
+            Features::ACCELERATION_STRUCTURE | Features::ACCELERATION_STRUCTURE_INDIRECT_BUILD,
+        ) {
+            Some(
+                vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR::builder()
+                    .buffer_device_address(true)
+                    // . buffer_device_address_capture_replay(true)
+                    // . buffer_device_address_multi_device(true)
+                    .build(),
+            )
+        } else {
+            None
+        },
+        acceleration_structure: if features.intersects(
+            Features::ACCELERATION_STRUCTURE | Features::ACCELERATION_STRUCTURE_INDIRECT_BUILD,
+        ) {
+            Some(
+                vk::PhysicalDeviceAccelerationStructureFeaturesKHR::builder()
+                    .acceleration_structure(features.contains(Features::ACCELERATION_STRUCTURE))
+                    // .acceleration_structure_capture_replay()
+                    .acceleration_structure_indirect_build(
+                        features.contains(Features::ACCELERATION_STRUCTURE_INDIRECT_BUILD),
+                    )
+                    // .acceleration_structure_host_commands()
+                    // .descriptor_binding_acceleration_structure_update_after_bind()
+                    .build(),
+            )
+        } else {
+            None
+        },
+        ray_tracing_pipeline: if features.contains(Features::RAY_TRACING_PIPELINE) {
+            Some(
+                vk::PhysicalDeviceRayTracingPipelineFeaturesKHR::builder()
+                    .ray_tracing_pipeline(features.contains(Features::RAY_TRACING_PIPELINE))
+                    // .ray_tracing_pipeline_shader_group_handle_capture_replay()
+                    // .ray_tracing_pipeline_shader_group_handle_capture_replay_mixed()
+                    // .ray_tracing_pipeline_trace_rays_indirect()
+                    // .ray_traversal_primitive_culling()
+                    .build(),
+            )
+        } else {
+            None
+        },
     }
 }
 
@@ -667,4 +713,161 @@ pub fn map_memory_heap_flags(flags: vk::MemoryHeapFlags) -> hal::memory::HeapFla
     }
 
     hal_flags
+}
+
+pub fn map_acceleration_structure_type(
+    ty: hal::acceleration_structure::Type,
+) -> vk::AccelerationStructureTypeKHR {
+    match ty {
+        hal::acceleration_structure::Type::TopLevel => vk::AccelerationStructureTypeKHR::TOP_LEVEL,
+        hal::acceleration_structure::Type::BottomLevel => {
+            vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL
+        }
+        hal::acceleration_structure::Type::Generic => vk::AccelerationStructureTypeKHR::GENERIC,
+    }
+}
+
+pub fn map_acceleration_structure_flags(
+    accel_flags: hal::acceleration_structure::Flags,
+) -> vk::BuildAccelerationStructureFlagsKHR {
+    use hal::acceleration_structure::Flags;
+    let mut flags = vk::BuildAccelerationStructureFlagsKHR::empty();
+
+    if accel_flags.contains(Flags::ALLOW_UPDATE) {
+        flags |= vk::BuildAccelerationStructureFlagsKHR::ALLOW_UPDATE;
+    }
+    if accel_flags.contains(Flags::ALLOW_COMPACTION) {
+        flags |= vk::BuildAccelerationStructureFlagsKHR::ALLOW_COMPACTION;
+    }
+    if accel_flags.contains(Flags::PREFER_FAST_TRACE) {
+        flags |= vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE;
+    }
+    if accel_flags.contains(Flags::PREFER_FAST_BUILD) {
+        flags |= vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_BUILD;
+    }
+    if accel_flags.contains(Flags::LOW_MEMORY) {
+        flags |= vk::BuildAccelerationStructureFlagsKHR::LOW_MEMORY;
+    }
+
+    flags
+}
+
+pub unsafe fn map_device_address(
+    device: &crate::Device,
+    buffer: &n::Buffer,
+    offset: hal::buffer::Offset,
+) -> vk::DeviceOrHostAddressConstKHR {
+    vk::DeviceOrHostAddressConstKHR {
+        device_address: device
+            .shared
+            .extension_fns
+            .buffer_device_address
+            .as_ref()
+            .expect("TODO msg")
+            .get_buffer_device_address_khr(
+                device.shared.raw.handle(),
+                &vk::BufferDeviceAddressInfo::builder()
+                    .buffer(buffer.raw)
+                    .build(),
+            )
+            + offset,
+    }
+}
+
+pub unsafe fn map_geometry(
+    device: &crate::Device,
+    geometry: &hal::acceleration_structure::Geometry<crate::Backend>,
+) -> vk::AccelerationStructureGeometryKHR {
+    vk::AccelerationStructureGeometryKHR::builder()
+        .geometry_type(match geometry.geometry {
+            hal::acceleration_structure::GeometryData::Triangles(_) => {
+                vk::GeometryTypeKHR::TRIANGLES
+            }
+            hal::acceleration_structure::GeometryData::Aabbs(_) => vk::GeometryTypeKHR::AABBS,
+            hal::acceleration_structure::GeometryData::Instances(_) => {
+                vk::GeometryTypeKHR::INSTANCES
+            }
+        })
+        .geometry(match geometry.geometry {
+            hal::acceleration_structure::GeometryData::Triangles(ref triangles) => {
+                vk::AccelerationStructureGeometryDataKHR {
+                    triangles: vk::AccelerationStructureGeometryTrianglesDataKHR::builder()
+                        .vertex_format(map_format(triangles.vertex_format))
+                        .vertex_data(map_device_address(
+                            device,
+                            triangles.vertex_buffer,
+                            triangles.vertex_buffer_offset,
+                        ))
+                        .vertex_stride(triangles.vertex_buffer_stride as u64)
+                        .max_vertex(triangles.max_vertex as u32)
+                        .index_type(
+                            triangles
+                                .index_buffer
+                                .map(|index_buffer| map_index_type(index_buffer.2))
+                                .unwrap_or(vk::IndexType::NONE_KHR),
+                        )
+                        .index_data(
+                            triangles
+                                .index_buffer
+                                .map(|index_buffer| {
+                                    map_device_address(device, index_buffer.0, index_buffer.1)
+                                })
+                                .unwrap_or_default(),
+                        )
+                        .transform_data(
+                            triangles
+                                .transform
+                                .map(|transform| {
+                                    map_device_address(device, transform.0, transform.1)
+                                })
+                                .unwrap_or_default(),
+                        )
+                        .build(),
+                }
+            }
+            hal::acceleration_structure::GeometryData::Aabbs(_) => {
+                todo!()
+            }
+            hal::acceleration_structure::GeometryData::Instances(_) => {
+                todo!()
+            }
+        })
+        .flags({
+            let mut flags = vk::GeometryFlagsKHR::empty();
+            if geometry
+                .flags
+                .contains(hal::acceleration_structure::GeometryFlags::OPAQUE)
+            {
+                flags |= vk::GeometryFlagsKHR::OPAQUE;
+            }
+            if geometry.flags.contains(
+                hal::acceleration_structure::GeometryFlags::NO_DUPLICATE_ANY_HIT_INVOCATION,
+            ) {
+                flags |= vk::GeometryFlagsKHR::NO_DUPLICATE_ANY_HIT_INVOCATION;
+            }
+            flags
+        })
+        .build()
+}
+
+pub unsafe fn map_geometry_build_info(
+    device: &crate::Device,
+    build_info: &hal::acceleration_structure::GeometryDesc<crate::Backend>,
+) -> vk::AccelerationStructureBuildGeometryInfoKHR {
+    vk::AccelerationStructureBuildGeometryInfoKHR::builder()
+        .ty(map_acceleration_structure_type(build_info.ty))
+        .flags(map_acceleration_structure_flags(build_info.flags))
+        // .mode(vk::BuildAccelerationStructureModeKHR::default())
+        // .src_acceleration_structure(vk::NULL_HANDLE)
+        // .dst_acceleration_structure(vk::NULL_HANDLE)
+        .geometries(
+            build_info
+                .geometries
+                .iter()
+                .map(|&geometry| map_geometry(device, geometry))
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        // .scratch_data()
+        .build()
 }

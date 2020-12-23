@@ -10,17 +10,15 @@ extern crate lazy_static;
 extern crate objc;
 
 #[cfg(not(feature = "use-rtld-next"))]
-use ash::Entry;
 use ash::{
     extensions::{
         self,
         ext::{DebugReport, DebugUtils},
-        khr::DrawIndirectCount,
-        khr::Swapchain,
+        khr::{AccelerationStructure, DrawIndirectCount, RayTracingPipeline, Swapchain},
         nv::MeshShader,
     },
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
-    vk, LoadingError,
+    vk, Entry, LoadingError,
 };
 
 use hal::{
@@ -32,6 +30,7 @@ use hal::{
     window::{OutOfDate, PresentError, Suboptimal, SurfaceLost},
     Features, Hints, Limits,
 };
+use vk::PhysicalDeviceProperties2;
 
 use std::{
     borrow::{Borrow, Cow},
@@ -307,7 +306,7 @@ impl hal::Instance<Backend> for Instance {
             .application_version(version)
             .engine_name(CStr::from_bytes_with_nul(b"gfx-rs\0").unwrap())
             .engine_version(1)
-            .api_version(vk::make_version(1, 0, 0));
+            .api_version(vk::make_version(1, 1, 0));
 
         let instance_extensions = entry
             .enumerate_instance_extension_properties()
@@ -656,6 +655,9 @@ pub struct DeviceCreationFeatures {
     core: vk::PhysicalDeviceFeatures,
     descriptor_indexing: Option<vk::PhysicalDeviceDescriptorIndexingFeaturesEXT>,
     mesh_shaders: Option<vk::PhysicalDeviceMeshShaderFeaturesNV>,
+    buffer_device_address: Option<vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR>,
+    acceleration_structure: Option<vk::PhysicalDeviceAccelerationStructureFeaturesKHR>,
+    ray_tracing_pipeline: Option<vk::PhysicalDeviceRayTracingPipelineFeaturesKHR>,
 }
 
 impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
@@ -718,6 +720,25 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 enabled_extensions.push(DrawIndirectCount::name());
             }
 
+            if requested_features.intersects(
+                Features::ACCELERATION_STRUCTURE | Features::ACCELERATION_STRUCTURE_INDIRECT_BUILD,
+            ) {
+                enabled_extensions.push(AccelerationStructure::name());
+
+                // TODO better handling of extension dependencies? These are required by VK_KHR_acceleration_structure
+                enabled_extensions.push(vk::ExtDescriptorIndexingFn::name());
+                enabled_extensions.push(vk::KhrBufferDeviceAddressFn::name());
+                enabled_extensions.push(extensions::khr::DeferredHostOperations::name());
+            }
+
+            if requested_features.contains(Features::RAY_TRACING_PIPELINE) {
+                enabled_extensions.push(RayTracingPipeline::name());
+
+                // TODO better handling of extension dependencies? These are required by VK_KHR_ray_tracing_pipeline
+                enabled_extensions.push(vk::KhrSpirv14Fn::name());
+                enabled_extensions.push(vk::KhrShaderFloatControlsFn::name());
+            }
+
             enabled_extensions
         };
 
@@ -766,6 +787,29 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 info
             };
 
+            let info = if let Some(ref mut buffer_device_address) =
+                enabled_features.buffer_device_address
+            {
+                info.push_next(buffer_device_address)
+            } else {
+                info
+            };
+
+            let info = if let Some(ref mut acceleration_structure) =
+                enabled_features.acceleration_structure
+            {
+                info.push_next(acceleration_structure)
+            } else {
+                info
+            };
+
+            let info =
+                if let Some(ref mut ray_tracing_pipeline) = enabled_features.ray_tracing_pipeline {
+                    info.push_next(ray_tracing_pipeline)
+                } else {
+                    info
+                };
+
             match self.instance.inner.create_device(self.handle, &info, None) {
                 Ok(device) => device,
                 Err(e) => {
@@ -802,6 +846,29 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             None
         };
 
+        let buffer_device_address_fn =
+            if requested_features.contains(Features::ACCELERATION_STRUCTURE) {
+                Some(vk::KhrBufferDeviceAddressFn::load(|name| unsafe {
+                    mem::transmute(
+                        self.instance
+                            .inner
+                            .get_device_proc_addr(device_raw.handle(), name.as_ptr()),
+                    )
+                }))
+            } else {
+                None
+            };
+
+        let acceleration_structure_fn =
+            if requested_features.contains(Features::ACCELERATION_STRUCTURE) {
+                Some(AccelerationStructure::new(
+                    &self.instance.inner,
+                    &device_raw,
+                ))
+            } else {
+                None
+            };
+
         let device = Device {
             shared: Arc::new(RawDevice {
                 raw: device_raw,
@@ -810,6 +877,8 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 extension_fns: DeviceExtensionFunctions {
                     mesh_shaders: mesh_fn,
                     draw_indirect_count: indirect_count_fn,
+                    buffer_device_address: buffer_device_address_fn,
+                    acceleration_structure: acceleration_structure_fn,
                 },
                 maintenance_level,
             }),
@@ -949,6 +1018,9 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                     == info::intel::DEVICE_SKY_LAKE_MASK);
 
         let mut descriptor_indexing_features = None;
+        let mut buffer_device_address = None;
+        let mut acceleration_structure_features = None;
+        let mut ray_tracing_pipeline_features = None;
         let features = if let Some(ref get_device_properties) =
             self.instance.get_physical_device_properties
         {
@@ -963,6 +1035,30 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                     Some(vk::PhysicalDeviceDescriptorIndexingFeaturesEXT::builder().build());
 
                 let mut_ref = descriptor_indexing_features.as_mut().unwrap();
+                mut_ref.p_next = mem::replace(&mut features2.p_next, mut_ref as *mut _ as *mut _);
+            }
+
+            if self.supports_extension(vk::KhrBufferDeviceAddressFn::name()) {
+                buffer_device_address =
+                    Some(vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR::builder().build());
+
+                let mut_ref = buffer_device_address.as_mut().unwrap();
+                mut_ref.p_next = mem::replace(&mut features2.p_next, mut_ref as *mut _ as *mut _);
+            }
+
+            if self.supports_extension(AccelerationStructure::name()) {
+                acceleration_structure_features =
+                    Some(vk::PhysicalDeviceAccelerationStructureFeaturesKHR::builder().build());
+
+                let mut_ref = acceleration_structure_features.as_mut().unwrap();
+                mut_ref.p_next = mem::replace(&mut features2.p_next, mut_ref as *mut _ as *mut _);
+            }
+
+            if self.supports_extension(RayTracingPipeline::name()) {
+                ray_tracing_pipeline_features =
+                    Some(vk::PhysicalDeviceRayTracingPipelineFeaturesKHR::builder().build());
+
+                let mut_ref = ray_tracing_pipeline_features.as_mut().unwrap();
                 mut_ref.p_next = mem::replace(&mut features2.p_next, mut_ref as *mut _ as *mut _);
             }
 
@@ -1180,6 +1276,51 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             bits |= Features::TASK_SHADER;
             bits |= Features::MESH_SHADER
         }
+        if let Some(acceleration_structure_features) = acceleration_structure_features {
+            if acceleration_structure_features.acceleration_structure == vk::TRUE {
+                bits |= Features::ACCELERATION_STRUCTURE;
+            }
+            if acceleration_structure_features.acceleration_structure_capture_replay == vk::TRUE {
+                // TODO
+            }
+            if acceleration_structure_features.acceleration_structure_indirect_build == vk::TRUE {
+                bits |= Features::ACCELERATION_STRUCTURE_INDIRECT_BUILD;
+            }
+            if acceleration_structure_features.acceleration_structure_host_commands == vk::TRUE {
+                // TODO
+            }
+            if acceleration_structure_features
+                .descriptor_binding_acceleration_structure_update_after_bind
+                == vk::TRUE
+            {
+                // TODO
+            }
+        }
+        if let Some(ray_tracing_pipeline_features) = ray_tracing_pipeline_features {
+            if ray_tracing_pipeline_features.ray_tracing_pipeline == vk::TRUE {
+                bits |= Features::RAY_TRACING_PIPELINE;
+            }
+            if ray_tracing_pipeline_features.ray_tracing_pipeline_shader_group_handle_capture_replay
+                == vk::TRUE
+            {
+                // bits |= Features::RAY_TRACING_PIPELINE_SHADER_GROUP_HANDLE_CAPTURE_REPLAY;
+            }
+            if ray_tracing_pipeline_features
+                .ray_tracing_pipeline_shader_group_handle_capture_replay_mixed
+                == vk::TRUE
+            {
+                // bits |= Features::RAY_TRACING_PIPELINE_SHADER_GROUP_HANDLE_CAPTURE_REPLAY_MIXED;
+            }
+            if ray_tracing_pipeline_features.ray_tracing_pipeline_trace_rays_indirect == vk::TRUE {
+                // bits |= Features::RAY_TRACING_PIPELINE_TRACE_RAYS_INDIRECT;
+            }
+            if ray_tracing_pipeline_features.ray_traversal_primitive_culling == vk::TRUE {
+                // bits |= Features::RAY_TRAVERSAL_PRIMITIVE_CULLING;
+            }
+        }
+        if let Some(buffer_device_address) = buffer_device_address {
+            // TODO
+        }
 
         bits
     }
@@ -1193,7 +1334,7 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
         let max_group_count = limits.max_compute_work_group_count;
         let max_group_size = limits.max_compute_work_group_size;
 
-        Limits {
+        let mut limits = Limits {
             max_image_1d_size: limits.max_image_dimension1_d,
             max_image_2d_size: limits.max_image_dimension2_d,
             max_image_3d_size: limits.max_image_dimension3_d,
@@ -1288,10 +1429,8 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             max_storage_buffer_range: limits.max_storage_buffer_range as _,
             max_uniform_buffer_range: limits.max_uniform_buffer_range as _,
             min_memory_map_alignment: limits.min_memory_map_alignment,
-            standard_sample_locations: limits.standard_sample_locations == ash::vk::TRUE,
+            standard_sample_locations: limits.standard_sample_locations == vk::TRUE,
 
-            // TODO: Implement Limits for Mesh Shaders
-            //       Depends on VkPhysicalDeviceMeshShaderPropertiesNV which depends on VkPhysicalProperties2
             max_draw_mesh_tasks_count: 0,
             max_task_work_group_invocations: 0,
             max_task_work_group_size: [0; 3],
@@ -1305,7 +1444,63 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             max_mesh_multiview_view_count: 0,
             mesh_output_per_vertex_granularity: 0,
             mesh_output_per_primitive_granularity: 0,
+
+            max_acceleration_structure_bottom_level_geometry_count: 0,
+            max_acceleration_structure_top_level_instance_count: 0,
+            max_acceleration_structure_bottom_level_total_primitive_count: 0,
+            max_per_stage_descriptor_acceleration_structures: 0,
+            max_descriptor_set_acceleration_structures: 0,
+            min_acceleration_structure_scratch_offset_alignment: 0,
+        };
+
+        if let Some(get_physical_device_properties) =
+            self.instance.get_physical_device_properties.as_ref()
+        {
+            let mut mesh_shader = vk::PhysicalDeviceMeshShaderPropertiesNV::builder();
+            let mut acceleration_structure =
+                vk::PhysicalDeviceAccelerationStructurePropertiesKHR::builder();
+
+            unsafe {
+                get_physical_device_properties.get_physical_device_properties2_khr(
+                    self.handle,
+                    &mut vk::PhysicalDeviceProperties2::builder()
+                        .push_next(&mut mesh_shader)
+                        .push_next(&mut acceleration_structure)
+                        .build() as *mut _,
+                );
+            }
+
+            limits.max_draw_mesh_tasks_count = mesh_shader.max_draw_mesh_tasks_count;
+            limits.max_task_work_group_invocations = mesh_shader.max_mesh_work_group_invocations;
+            limits.max_task_work_group_size = mesh_shader.max_mesh_work_group_size;
+            limits.max_task_total_memory_size = mesh_shader.max_task_total_memory_size;
+            limits.max_task_output_count = mesh_shader.max_task_output_count;
+            limits.max_mesh_work_group_invocations = mesh_shader.max_mesh_work_group_invocations;
+            limits.max_mesh_work_group_size = mesh_shader.max_mesh_work_group_size;
+            limits.max_mesh_total_memory_size = mesh_shader.max_mesh_total_memory_size;
+            limits.max_mesh_output_vertices = mesh_shader.max_mesh_output_vertices;
+            limits.max_mesh_output_primitives = mesh_shader.max_mesh_output_primitives;
+            limits.max_mesh_multiview_view_count = mesh_shader.max_mesh_multiview_view_count;
+            limits.mesh_output_per_vertex_granularity =
+                mesh_shader.mesh_output_per_vertex_granularity;
+            limits.mesh_output_per_primitive_granularity =
+                mesh_shader.mesh_output_per_primitive_granularity;
+
+            limits.max_acceleration_structure_bottom_level_geometry_count =
+                acceleration_structure.max_geometry_count;
+            limits.max_acceleration_structure_top_level_instance_count =
+                acceleration_structure.max_instance_count;
+            limits.max_acceleration_structure_bottom_level_total_primitive_count =
+                acceleration_structure.max_primitive_count;
+            limits.max_per_stage_descriptor_acceleration_structures =
+                acceleration_structure.max_per_stage_descriptor_acceleration_structures;
+            limits.max_descriptor_set_acceleration_structures =
+                acceleration_structure.max_descriptor_set_acceleration_structures;
+            limits.min_acceleration_structure_scratch_offset_alignment =
+                acceleration_structure.min_acceleration_structure_scratch_offset_alignment;
         }
+
+        limits
     }
 
     fn is_valid_cache(&self, cache: &[u8]) -> bool {
@@ -1366,6 +1561,9 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
 struct DeviceExtensionFunctions {
     mesh_shaders: Option<MeshShader>,
     draw_indirect_count: Option<DrawIndirectCount>,
+    // TODO: this was included in Vulkan 1.2 core, this extension is needed before then and may not be supported after
+    buffer_device_address: Option<vk::KhrBufferDeviceAddressFn>,
+    acceleration_structure: Option<AccelerationStructure>,
 }
 
 #[doc(hidden)]
@@ -1556,4 +1754,6 @@ impl hal::Backend for Backend {
     type Semaphore = native::Semaphore;
     type Event = native::Event;
     type QueryPool = native::QueryPool;
+
+    type AccelerationStructure = native::AccelerationStructure;
 }

@@ -30,6 +30,10 @@ path = "compute/main.rs"
 name = "mesh-shading"
 path = "mesh-shading/main.rs"
 
+[[bin]]
+name = "ray-tracing"
+path = "ray-tracing/main.rs"
+
 [dependencies]
 image = "0.23.12"
 log = "0.4"
@@ -49,7 +53,7 @@ console_log = "0.1.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
 version = "0.3.6"
-features = [ "console", "Document", "Element", "HtmlElement", "Node", "Window" ]
+features = ["console", "Document", "Element", "HtmlElement", "Node", "Window"]
 
 [dependencies.gfx-backend-vulkan]
 path = "../src/backend/vulkan"

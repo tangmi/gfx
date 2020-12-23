@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// Denotes the type of acceleration structure.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum Type {
     /// A top-level acceleration structure containing [`GeometryData::Instances`] pointing to bottom-level acceleration structures.
     TopLevel,
@@ -27,6 +27,11 @@ pub struct CreateDesc<'a, B: Backend> {
 
     /// The offset into `buffer` where the acceleration structure will be written. Must be a multiple of 256.
     pub buffer_offset: Offset,
+
+    /// The size required for the acceleration structure.
+    ///
+    /// TODO additional notes on where to get this size for build vs compacting
+    pub size: u64,
 
     /// The type of acceleration structure to build.
     pub ty: Type,
@@ -49,7 +54,7 @@ pub struct BuildDesc<'a, B: Backend> {
     pub dst: &'a B::AccelerationStructure,
 
     /// The geometry data that will be written into this acceleration structure.
-    pub geometry: GeometryDesc<'a, B>,
+    pub geometry: &'a GeometryDesc<'a, B>,
 
     // TODO(cpu-repr)
     /// The buffer containing scratch space used to construct a acceleration structure.
@@ -145,7 +150,7 @@ pub struct GeometryTriangles<'a, B: Backend> {
     pub vertex_buffer_stride: Stride,
 
     /// The index of the last vertex addressed by a build command using this geometry.
-    pub max_vertex: Offset,
+    pub max_vertex: Offset, // TODO vulkan api takes u32
 
     // TODO(cpu-repr)
     /// The buffer and offset containing the index data and the type of the indices.
@@ -250,7 +255,7 @@ pub struct Instance {
 }
 
 /// The size requirements describing how big to make the buffers needed to create an acceleration structure.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct SizeRequirements {
     /// The required size for the acceleration structure buffer.
     pub acceleration_structure_size: u64,
@@ -261,7 +266,7 @@ pub struct SizeRequirements {
 }
 
 /// Denotes how an acceleration structure should be copied.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum CopyMode {
     /// Creates a copy of the source acceleration structure to the destination. Both must have been created with the same parameters.
     Copy,

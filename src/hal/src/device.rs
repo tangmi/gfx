@@ -753,7 +753,7 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
         // build_type: acceleration_structure::HostOrDevice,
         build_info: &acceleration_structure::GeometryDesc<B>,
         // must be a parallel array to `build_info.geometries` containing the primitive counts for each geometry.
-        max_primitives_count: &[u32],
+        max_primitives_counts: &[u32],
     ) -> acceleration_structure::SizeRequirements;
 
     // TODO(host-commands)

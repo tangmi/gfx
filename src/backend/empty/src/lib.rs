@@ -1018,7 +1018,7 @@ impl command::CommandBuffer<Backend> for CommandBuffer {
     unsafe fn build_acceleration_structures<'a, I>(&self, descs: I)
     where
         I: IntoIterator<
-            Item = (
+            Item = &'a (
                 &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
                 // BuildRangeDesc array len must equal BuildDesc.geometry.geometries' len
                 &'a [hal::acceleration_structure::BuildRangeDesc],
@@ -1032,7 +1032,7 @@ impl command::CommandBuffer<Backend> for CommandBuffer {
     unsafe fn build_acceleration_structures_indirect<'a, I>(&self, descs: I)
     where
         I: IntoIterator<
-            Item = (
+            Item = &'a (
                 &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
                 // `indirect_device_address` is a buffer device address that points to BuildDesc.geometry.geometries.len() BuildRangeDesc structures defining dynamic offsets to the addresses where geometry data is stored, as defined by BuildDesc.
                 &'a Buffer,

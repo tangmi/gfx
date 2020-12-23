@@ -7,6 +7,7 @@ use ash::{
 use smallvec::SmallVec;
 
 use hal::{
+    acceleration_structure::GeometryFlags,
     memory::{Requirements, Segment},
     pool::CommandPoolCreateFlags,
     pso::VertexInputRate,
@@ -460,9 +461,15 @@ impl d::Device<B> for Device {
         mem_type: MemoryTypeId,
         size: u64,
     ) -> Result<n::Memory, d::AllocationError> {
+        let mut flags_info = vk::MemoryAllocateFlagsInfo::builder().flags(
+            // TODO needs Vulkan 1.2? Also either expose in hal or infer from usage?
+            vk::MemoryAllocateFlags::DEVICE_ADDRESS,
+        );
+
         let info = vk::MemoryAllocateInfo::builder()
             .allocation_size(size)
-            .memory_type_index(self.get_ash_memory_type_index(mem_type));
+            .memory_type_index(self.get_ash_memory_type_index(mem_type))
+            .push_next(&mut flags_info);
 
         let result = self.shared.raw.allocate_memory(&info, None);
 
@@ -1711,6 +1718,9 @@ impl d::Device<B> for Device {
                     pso::Descriptor::TexelBuffer(view) => {
                         texel_buffer_views.push(view.raw);
                     }
+                    pso::Descriptor::AccelerationStructure(_) => {
+                        todo!()
+                    }
                 }
             }
         }
@@ -1991,6 +2001,12 @@ impl d::Device<B> for Device {
                 vk::QueryType::TIMESTAMP,
                 vk::QueryPipelineStatisticFlags::empty(),
             ),
+            query::Type::AccelerationStructureCompactedSize => {
+                todo!()
+            }
+            query::Type::AccelerationStructureSerializationSize => {
+                todo!()
+            }
         };
 
         let info = vk::QueryPoolCreateInfo::builder()
@@ -2035,6 +2051,78 @@ impl d::Device<B> for Device {
             vk::Result::ERROR_OUT_OF_HOST_MEMORY => Err(d::OutOfMemory::Host.into()),
             vk::Result::ERROR_OUT_OF_DEVICE_MEMORY => Err(d::OutOfMemory::Device.into()),
             _ => unreachable!(),
+        }
+    }
+
+    unsafe fn create_acceleration_structure(
+        &self,
+        desc: &hal::acceleration_structure::CreateDesc<B>,
+    ) -> Result<n::AccelerationStructure, d::OutOfMemory> {
+        let result = self
+            .shared
+            .extension_fns
+            .acceleration_structure
+            .as_ref()
+            .expect("TODO msg")
+            .create_acceleration_structure(
+                &vk::AccelerationStructureCreateInfoKHR::builder()
+                    .buffer(desc.buffer.raw)
+                    .offset(desc.buffer_offset)
+                    .size(desc.size)
+                    .ty(match desc.ty {
+                        hal::acceleration_structure::Type::TopLevel => {
+                            vk::AccelerationStructureTypeKHR::TOP_LEVEL
+                        }
+                        hal::acceleration_structure::Type::BottomLevel => {
+                            vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL
+                        }
+                        hal::acceleration_structure::Type::Generic => {
+                            vk::AccelerationStructureTypeKHR::GENERIC
+                        }
+                    })
+                    // TODO(capture-replay)
+                    // .create_flags(vk::AccelerationStructureCreateFlagsKHR::empty())
+                    // .device_address()
+                    .build(),
+                None,
+            );
+
+        match result {
+            Ok(acceleration_structure) => Ok(n::AccelerationStructure(acceleration_structure)),
+            Err(vk::Result::ERROR_OUT_OF_HOST_MEMORY) => Err(d::OutOfMemory::Host),
+            // TODO(capture-replay)
+            Err(vk::Result::ERROR_INVALID_OPAQUE_CAPTURE_ADDRESS) => todo!(),
+            _ => unreachable!(),
+        }
+    }
+
+    unsafe fn get_acceleration_structure_build_requirements(
+        &self,
+        // used for host operations
+        // build_type: acceleration_structure::HostOrDevice,
+        build_info: &hal::acceleration_structure::GeometryDesc<B>,
+        // must be a parallel array to `build_info.geometries` containing the primitive counts for each geometry.
+        max_primitives_counts: &[u32],
+    ) -> hal::acceleration_structure::SizeRequirements {
+        let build_size_info = self
+            .shared
+            .extension_fns
+            .acceleration_structure
+            .as_ref()
+            .expect(
+                "Feature ACCELERATION_STRUCTURE must be enabled to call get_acceleration_structure_build_requirements",
+            )
+            .get_acceleration_structure_build_sizes(
+                self.shared.raw.handle(),
+                vk::AccelerationStructureBuildTypeKHR::DEVICE,
+                &conv::map_geometry_build_info(self, build_info),
+                max_primitives_counts,
+            );
+
+        hal::acceleration_structure::SizeRequirements {
+            acceleration_structure_size: build_size_info.acceleration_structure_size,
+            update_scratch_size: build_size_info.update_scratch_size,
+            build_scratch_size: build_size_info.build_scratch_size,
         }
     }
 
@@ -2117,6 +2205,18 @@ impl d::Device<B> for Device {
         self.shared.raw.destroy_event(event.0, None);
     }
 
+    unsafe fn destroy_acceleration_structure(
+        &self,
+        acceleration_structure: n::AccelerationStructure,
+    ) {
+        self.shared
+            .extension_fns
+            .acceleration_structure
+            .as_ref()
+            .expect("TODO msg")
+            .destroy_acceleration_structure(acceleration_structure.0, None);
+    }
+
     fn wait_idle(&self) -> Result<(), d::OutOfMemory> {
         match unsafe { self.shared.raw.device_wait_idle() } {
             Ok(()) => Ok(()),
@@ -2182,6 +2282,18 @@ impl d::Device<B> for Device {
         self.set_object_name(
             vk::ObjectType::PIPELINE_LAYOUT,
             pipeline_layout.raw.as_raw(),
+            name,
+        )
+    }
+
+    unsafe fn set_acceleration_structure_name(
+        &self,
+        acceleration_structure: &mut n::AccelerationStructure,
+        name: &str,
+    ) {
+        self.set_object_name(
+            vk::ObjectType::ACCELERATION_STRUCTURE_KHR,
+            acceleration_structure.0.as_raw(),
             name,
         )
     }

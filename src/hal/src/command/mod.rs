@@ -608,7 +608,7 @@ pub trait CommandBuffer<B: Backend>: fmt::Debug + Any + Send + Sync {
     unsafe fn build_acceleration_structures<'a, I>(&self, descs: I)
     where
         I: IntoIterator<
-            Item = (
+            Item = &'a (
                 &'a acceleration_structure::BuildDesc<'a, B>,
                 // BuildRangeDesc array len must equal BuildDesc.geometry.geometries' len
                 &'a [acceleration_structure::BuildRangeDesc],
@@ -622,7 +622,7 @@ pub trait CommandBuffer<B: Backend>: fmt::Debug + Any + Send + Sync {
     unsafe fn build_acceleration_structures_indirect<'a, I>(&self, descs: I)
     where
         I: IntoIterator<
-            Item = (
+            Item = &'a (
                 &'a acceleration_structure::BuildDesc<'a, B>,
                 // `indirect_device_address` is a buffer device address that points to BuildDesc.geometry.geometries.len() BuildRangeDesc structures defining dynamic offsets to the addresses where geometry data is stored, as defined by BuildDesc.
                 &'a B::Buffer,
