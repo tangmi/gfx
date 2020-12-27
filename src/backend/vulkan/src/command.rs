@@ -1072,7 +1072,7 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
     unsafe fn build_acceleration_structures<'a, I>(&self, descs: I)
     where
         I: IntoIterator<
-            Item = &'a(
+            Item = &'a (
                 &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
                 // BuildRangeDesc array len must equal BuildDesc.geometry.geometries' len
                 &'a [hal::acceleration_structure::BuildRangeDesc],
@@ -1080,13 +1080,68 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
         >,
         I::IntoIter: ExactSizeIterator,
     {
-        todo!()
+        let mut infos = Vec::new();
+        let mut build_range_infos = Vec::new();
+
+        for desc in descs {
+            infos.push(
+                vk::AccelerationStructureBuildGeometryInfoKHR::builder()
+                    .ty(conv::map_acceleration_structure_type(desc.0.geometry.ty))
+                    .flags(conv::map_acceleration_structure_flags(
+                        desc.0.geometry.flags,
+                    ))
+                    .mode(if desc.0.src.is_some() {
+                        vk::BuildAccelerationStructureModeKHR::UPDATE
+                    } else {
+                        vk::BuildAccelerationStructureModeKHR::BUILD
+                    })
+                    .src_acceleration_structure(desc.0.src.map(|a| a.0).unwrap_or_default())
+                    .dst_acceleration_structure(desc.0.dst.0)
+                    .geometries(
+                        desc.0
+                            .geometry
+                            .geometries
+                            .iter()
+                            .map(|&geometry| conv::map_geometry(&self.device, geometry))
+                            .collect::<Vec<_>>()
+                            .as_slice(),
+                    )
+                    .scratch_data(conv::map_device_address(
+                        &self.device,
+                        desc.0.scratch,
+                        desc.0.scratch_offset,
+                    ))
+                    .build(),
+            );
+
+            build_range_infos.push(
+                // BuildRangeDesc and VkAccelerationStructureBuildRangeInfoKHR are the same layout
+                // TODO does this work with slices (which are fat pointers)? this could very likely be a bug in more complex scenarios.
+                mem::transmute::<&[hal::acceleration_structure::BuildRangeDesc], &[vk::AccelerationStructureBuildRangeInfoKHR]>(desc.1)
+
+                // desc.1.iter().map(|build_range_desc|
+                //     vk::AccelerationStructureBuildRangeInfoKHR::builder()
+                //         .primitive_count(build_range_desc)
+                //         // .primitive_offset()
+                //         // .first_vertex()
+                //         // .transform_offset()
+                //         .build(),
+                // ),
+            );
+        }
+
+        self.device
+            .extension_fns
+            .acceleration_structure
+            .as_ref()
+            .expect("TODO msg")
+            .cmd_build_acceleration_structures(self.raw, &infos, build_range_infos.as_slice());
     }
 
     unsafe fn build_acceleration_structures_indirect<'a, I>(&self, descs: I)
     where
         I: IntoIterator<
-            Item = &'a(
+            Item = &'a (
                 &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
                 // `indirect_device_address` is a buffer device address that points to BuildDesc.geometry.geometries.len() BuildRangeDesc structures defining dynamic offsets to the addresses where geometry data is stored, as defined by BuildDesc.
                 &'a n::Buffer,
@@ -1139,7 +1194,32 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
         pool: &n::QueryPool,
         first_query: u32,
     ) {
-        todo!()
+        self.device
+            .extension_fns
+            .acceleration_structure
+            .as_ref()
+            .expect("TODO msg")
+            .cmd_write_acceleration_structures_properties(
+                self.raw,
+                structures
+                    .iter()
+                    .map(|a| a.0)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                match query_type {
+                    query::Type::AccelerationStructureCompactedSize => {
+                        vk::QueryType::ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR
+                    }
+                    query::Type::AccelerationStructureSerializationSize => {
+                        vk::QueryType::ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR
+                    }
+                    _ => {
+                        panic!("TODO error msg?")
+                    }
+                },
+                pool.0,
+                first_query,
+            );
     }
 
     unsafe fn push_compute_constants(

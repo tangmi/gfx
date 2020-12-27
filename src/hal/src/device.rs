@@ -756,6 +756,12 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
         max_primitives_counts: &[u32],
     ) -> acceleration_structure::SizeRequirements;
 
+    /// Get the device address of a buffer for use in top-level acceleration structures.
+    unsafe fn get_buffer_address(
+        &self,
+        buffer: &B::Buffer,
+    ) -> acceleration_structure::BufferAddress;
+
     // TODO(host-commands)
     // - build_acceleration_structures
     // - copy_acceleration_structure

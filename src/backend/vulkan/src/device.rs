@@ -2001,12 +2001,14 @@ impl d::Device<B> for Device {
                 vk::QueryType::TIMESTAMP,
                 vk::QueryPipelineStatisticFlags::empty(),
             ),
-            query::Type::AccelerationStructureCompactedSize => {
-                todo!()
-            }
-            query::Type::AccelerationStructureSerializationSize => {
-                todo!()
-            }
+            query::Type::AccelerationStructureCompactedSize => (
+                vk::QueryType::ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR,
+                vk::QueryPipelineStatisticFlags::empty(),
+            ),
+            query::Type::AccelerationStructureSerializationSize => (
+                vk::QueryType::ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR,
+                vk::QueryPipelineStatisticFlags::empty(),
+            ),
         };
 
         let info = vk::QueryPoolCreateInfo::builder()
@@ -2104,18 +2106,32 @@ impl d::Device<B> for Device {
         // must be a parallel array to `build_info.geometries` containing the primitive counts for each geometry.
         max_primitives_counts: &[u32],
     ) -> hal::acceleration_structure::SizeRequirements {
+        let build_info = vk::AccelerationStructureBuildGeometryInfoKHR::builder()
+            .ty(conv::map_acceleration_structure_type(build_info.ty))
+            .flags(conv::map_acceleration_structure_flags(build_info.flags))
+            .geometries(
+                build_info
+                    .geometries
+                    .iter()
+                    .map(|&geometry| conv::map_geometry(&self.shared, geometry))
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )
+            .build();
+
         let build_size_info = self
             .shared
             .extension_fns
             .acceleration_structure
             .as_ref()
             .expect(
+                // TODO: this string prevents rustfmt from running?
                 "Feature ACCELERATION_STRUCTURE must be enabled to call get_acceleration_structure_build_requirements",
             )
             .get_acceleration_structure_build_sizes(
                 self.shared.raw.handle(),
                 vk::AccelerationStructureBuildTypeKHR::DEVICE,
-                &conv::map_geometry_build_info(self, build_info),
+                &build_info,
                 max_primitives_counts,
             );
 
@@ -2124,6 +2140,25 @@ impl d::Device<B> for Device {
             update_scratch_size: build_size_info.update_scratch_size,
             build_scratch_size: build_size_info.build_scratch_size,
         }
+    }
+
+    unsafe fn get_buffer_address(
+        &self,
+        buffer: &n::Buffer,
+    ) -> hal::acceleration_structure::BufferAddress {
+        hal::acceleration_structure::BufferAddress(
+            self.shared
+                .extension_fns
+                .buffer_device_address
+                .as_ref()
+                .expect("TODO msg")
+                .get_buffer_device_address_khr(
+                    self.shared.raw.handle(),
+                    &vk::BufferDeviceAddressInfo::builder()
+                        .buffer(buffer.raw)
+                        .build(),
+                ),
+        )
     }
 
     unsafe fn destroy_query_pool(&self, pool: n::QueryPool) {

@@ -753,19 +753,39 @@ pub fn map_acceleration_structure_flags(
 }
 
 pub unsafe fn map_device_address(
-    device: &crate::Device,
+    device: &crate::RawDevice,
     buffer: &n::Buffer,
     offset: hal::buffer::Offset,
-) -> vk::DeviceOrHostAddressConstKHR {
-    vk::DeviceOrHostAddressConstKHR {
+) -> vk::DeviceOrHostAddressKHR {
+    vk::DeviceOrHostAddressKHR {
         device_address: device
-            .shared
             .extension_fns
             .buffer_device_address
             .as_ref()
             .expect("TODO msg")
             .get_buffer_device_address_khr(
-                device.shared.raw.handle(),
+                device.raw.handle(),
+                &vk::BufferDeviceAddressInfo::builder()
+                    .buffer(buffer.raw)
+                    .build(),
+            )
+            + offset,
+    }
+}
+
+pub unsafe fn map_device_address_const(
+    device: &crate::RawDevice,
+    buffer: &n::Buffer,
+    offset: hal::buffer::Offset,
+) -> vk::DeviceOrHostAddressConstKHR {
+    vk::DeviceOrHostAddressConstKHR {
+        device_address: device
+            .extension_fns
+            .buffer_device_address
+            .as_ref()
+            .expect("TODO msg")
+            .get_buffer_device_address_khr(
+                device.raw.handle(),
                 &vk::BufferDeviceAddressInfo::builder()
                     .buffer(buffer.raw)
                     .build(),
@@ -775,7 +795,7 @@ pub unsafe fn map_device_address(
 }
 
 pub unsafe fn map_geometry(
-    device: &crate::Device,
+    device: &crate::RawDevice,
     geometry: &hal::acceleration_structure::Geometry<crate::Backend>,
 ) -> vk::AccelerationStructureGeometryKHR {
     vk::AccelerationStructureGeometryKHR::builder()
@@ -793,7 +813,7 @@ pub unsafe fn map_geometry(
                 vk::AccelerationStructureGeometryDataKHR {
                     triangles: vk::AccelerationStructureGeometryTrianglesDataKHR::builder()
                         .vertex_format(map_format(triangles.vertex_format))
-                        .vertex_data(map_device_address(
+                        .vertex_data(map_device_address_const(
                             device,
                             triangles.vertex_buffer,
                             triangles.vertex_buffer_offset,
@@ -810,7 +830,7 @@ pub unsafe fn map_geometry(
                             triangles
                                 .index_buffer
                                 .map(|index_buffer| {
-                                    map_device_address(device, index_buffer.0, index_buffer.1)
+                                    map_device_address_const(device, index_buffer.0, index_buffer.1)
                                 })
                                 .unwrap_or_default(),
                         )
@@ -818,18 +838,36 @@ pub unsafe fn map_geometry(
                             triangles
                                 .transform
                                 .map(|transform| {
-                                    map_device_address(device, transform.0, transform.1)
+                                    map_device_address_const(device, transform.0, transform.1)
                                 })
                                 .unwrap_or_default(),
                         )
                         .build(),
                 }
             }
-            hal::acceleration_structure::GeometryData::Aabbs(_) => {
-                todo!()
+            hal::acceleration_structure::GeometryData::Aabbs(ref aabbs) => {
+                vk::AccelerationStructureGeometryDataKHR {
+                    aabbs: vk::AccelerationStructureGeometryAabbsDataKHR::builder()
+                        .data(map_device_address_const(
+                            device,
+                            aabbs.buffer,
+                            aabbs.buffer_offset,
+                        ))
+                        .stride(aabbs.buffer_stride as u64)
+                        .build(),
+                }
             }
-            hal::acceleration_structure::GeometryData::Instances(_) => {
-                todo!()
+            hal::acceleration_structure::GeometryData::Instances(ref instances) => {
+                vk::AccelerationStructureGeometryDataKHR {
+                    instances: vk::AccelerationStructureGeometryInstancesDataKHR::builder()
+                        .array_of_pointers(false)
+                        .data(map_device_address_const(
+                            device,
+                            instances.buffer,
+                            instances.buffer_offset,
+                        ))
+                        .build(),
+                }
             }
         })
         .flags({
@@ -847,27 +885,5 @@ pub unsafe fn map_geometry(
             }
             flags
         })
-        .build()
-}
-
-pub unsafe fn map_geometry_build_info(
-    device: &crate::Device,
-    build_info: &hal::acceleration_structure::GeometryDesc<crate::Backend>,
-) -> vk::AccelerationStructureBuildGeometryInfoKHR {
-    vk::AccelerationStructureBuildGeometryInfoKHR::builder()
-        .ty(map_acceleration_structure_type(build_info.ty))
-        .flags(map_acceleration_structure_flags(build_info.flags))
-        // .mode(vk::BuildAccelerationStructureModeKHR::default())
-        // .src_acceleration_structure(vk::NULL_HANDLE)
-        // .dst_acceleration_structure(vk::NULL_HANDLE)
-        .geometries(
-            build_info
-                .geometries
-                .iter()
-                .map(|&geometry| map_geometry(device, geometry))
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
-        // .scratch_data()
         .build()
 }

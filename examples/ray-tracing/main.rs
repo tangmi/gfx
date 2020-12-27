@@ -17,6 +17,10 @@ extern crate gfx_backend_metal as back;
 #[cfg(feature = "vulkan")]
 extern crate gfx_backend_vulkan as back;
 
+use accel::{CreateDesc, GeometryInstances};
+use buffer::Access;
+use mem::{size_of, MaybeUninit};
+use memory::{Barrier, Dependencies};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -32,7 +36,8 @@ use hal::{
     buffer::{self},
     command, format, memory, pool,
     prelude::*,
-    window, IndexType,
+    pso::PipelineStage,
+    window, Backend, IndexType,
 };
 
 use std::{
@@ -40,6 +45,7 @@ use std::{
     io::Cursor,
     iter,
     mem::{self, ManuallyDrop},
+    ops::{Deref, DerefMut},
     ptr,
 };
 
@@ -52,6 +58,7 @@ struct Vertex {
     a_Pos: [f32; 3],
 }
 
+// TODO normals
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const CUBE: [Vertex; 8] = [
     // front face
@@ -95,6 +102,35 @@ fn main() {
     eprintln!(
         "You are running the example with the empty backend, no graphical output is to be expected"
     );
+
+    let teapot = wavefront_obj::obj::parse(include_str!("./data/teapot.obj")).unwrap();
+    assert_eq!(teapot.objects.len(), 1);
+    let teapot_vertices = teapot.objects[0]
+        .vertices
+        .iter()
+        .map(|vertex| Vertex {
+            a_Pos: [vertex.x as f32, vertex.y as f32, vertex.z as f32],
+        })
+        .collect::<Vec<_>>();
+    let teapot_indices = {
+        let object = &teapot.objects[0];
+        assert_eq!(object.geometry.len(), 1);
+        object.geometry[0]
+            .shapes
+            .iter()
+            .flat_map(|shape| match shape.primitive {
+                wavefront_obj::obj::Primitive::Point(_) => {
+                    unimplemented!()
+                }
+                wavefront_obj::obj::Primitive::Line(_, _) => {
+                    unimplemented!()
+                }
+                wavefront_obj::obj::Primitive::Triangle(a, b, c) => std::iter::once(a.0 as u16)
+                    .chain(std::iter::once(b.0 as u16))
+                    .chain(std::iter::once(c.0 as u16)),
+            })
+            .collect::<Vec<_>>()
+    };
 
     let event_loop = winit::event_loop::EventLoop::new();
 
@@ -177,7 +213,7 @@ fn main() {
         &memory_types,
         buffer::Usage::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY
             | buffer::Usage::SHADER_DEVICE_ADDRESS,
-        &CUBE,
+        &teapot_vertices,
     );
 
     let index_buffer = upload_to_buffer::<back::Backend, _>(
@@ -186,7 +222,7 @@ fn main() {
         &memory_types,
         buffer::Usage::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY
             | buffer::Usage::SHADER_DEVICE_ADDRESS,
-        &CUBE_INDICES,
+        &teapot_indices,
     );
 
     unsafe {
@@ -200,75 +236,324 @@ fn main() {
                     vertex_buffer: &vertex_buffer.0,
                     vertex_buffer_offset: 0,
                     vertex_buffer_stride: std::mem::size_of::<Vertex>() as u32,
-                    max_vertex: CUBE.len() as u64,
+                    max_vertex: teapot_vertices.len() as u64,
                     index_buffer: Some((&index_buffer.0, 0, IndexType::U16)),
                     transform: None,
                 }),
             }],
         };
 
-        let cube_primitive_count = (CUBE_INDICES.len() / 3) as u32;
-        let requirements = device
+        let cube_primitive_count = (teapot_indices.len() / 3) as u32;
+        let teapot_blas_requirements = device
             .get_acceleration_structure_build_requirements(&geometry_desc, &[cube_primitive_count]);
 
-        dbg!(&requirements);
+        let raw_size =
+            teapot_vertices.len() * size_of::<Vertex>() + teapot_vertices.len() * size_of::<u16>();
+        dbg!(teapot_vertices.len());
+        dbg!(teapot_indices.len());
+        dbg!(raw_size);
+        dbg!(&teapot_blas_requirements);
+        dbg!(teapot_blas_requirements.acceleration_structure_size as f64 / raw_size as f64);
+        dbg!(teapot_blas_requirements.build_scratch_size as f64 / raw_size as f64);
+        assert!(teapot_blas_requirements.acceleration_structure_size > 0);
+        assert_eq!(teapot_blas_requirements.update_scratch_size, 0);
+        assert!(teapot_blas_requirements.build_scratch_size > 0);
 
         let scratch_buffer = create_empty_buffer::<back::Backend>(
             &device,
             limits.non_coherent_atom_size as u64,
             &memory_types,
-            buffer::Usage::ACCELERATION_STRUCTURE_STORAGE,
-            requirements.build_scratch_size,
+            buffer::Usage::ACCELERATION_STRUCTURE_STORAGE | buffer::Usage::SHADER_DEVICE_ADDRESS,
+            teapot_blas_requirements.build_scratch_size,
         );
 
         let accel_struct_bottom_buffer = create_empty_buffer::<back::Backend>(
             &device,
             limits.non_coherent_atom_size as u64,
             &memory_types,
-            buffer::Usage::ACCELERATION_STRUCTURE_STORAGE,
-            requirements.acceleration_structure_size,
+            buffer::Usage::ACCELERATION_STRUCTURE_STORAGE | buffer::Usage::SHADER_DEVICE_ADDRESS,
+            teapot_blas_requirements.acceleration_structure_size,
         );
 
-        let accel_struct = device
-            .create_acceleration_structure(&accel::CreateDesc {
-                buffer: &accel_struct_bottom_buffer.0,
-                buffer_offset: 0,
-                size: requirements.acceleration_structure_size,
-                ty: accel::Type::BottomLevel,
-            })
-            .unwrap();
+        let mut teapot_blas = AccelerationStructure::<back::Backend> {
+            accel_struct: device
+                .create_acceleration_structure(&accel::CreateDesc {
+                    buffer: &accel_struct_bottom_buffer.0,
+                    buffer_offset: 0,
+                    size: teapot_blas_requirements.acceleration_structure_size,
+                    ty: accel::Type::BottomLevel,
+                })
+                .unwrap(),
+            backing: accel_struct_bottom_buffer,
+        };
 
-        dbg!(&accel_struct);
+        dbg!(&teapot_blas);
 
-        // TODO
-        // let mut build_fence = device.create_fence(false).unwrap();
-        // let mut cmd_buffer = command_pool.allocate_one(command::Level::Primary);
-        // cmd_buffer.begin_primary(command::CommandBufferFlags::ONE_TIME_SUBMIT);
+        device.set_acceleration_structure_name(&mut teapot_blas.accel_struct, "teapot");
 
-        // cmd_buffer.build_acceleration_structures(&[(
-        //     &accel::BuildDesc {
-        //         src: None,
-        //         dst: &accel_struct,
-        //         geometry: &geometry_desc,
-        //         scratch: &scratch_buffer.0,
-        //         scratch_offset: 0,
-        //     },
-        //     &[accel::BuildRangeDesc {
-        //         primitive_count: cube_primitive_count,
-        //         primitive_offset: 0,
-        //         first_vertex: 0,
-        //         transform_offset: 0,
-        //     }][..],
-        // )]);
+        {
+            let query_count = 1;
+            let compacted_size_pool = device
+                .create_query_pool(
+                    hal::query::Type::AccelerationStructureCompactedSize,
+                    query_count,
+                )
+                .unwrap();
+            let serialized_size_pool = device
+                .create_query_pool(
+                    hal::query::Type::AccelerationStructureSerializationSize,
+                    query_count,
+                )
+                .unwrap();
 
-        // cmd_buffer.finish();
+            let mut build_fence = device.create_fence(false).unwrap();
+            let mut cmd_buffer = command_pool.allocate_one(command::Level::Primary);
+            cmd_buffer.begin_primary(command::CommandBufferFlags::ONE_TIME_SUBMIT);
 
-        // queue_group.queues[0].submit_without_semaphores(Some(&cmd_buffer), Some(&mut build_fence));
+            cmd_buffer.build_acceleration_structures(&[(
+                &accel::BuildDesc {
+                    src: None,
+                    dst: &teapot_blas.accel_struct,
+                    geometry: &geometry_desc,
+                    scratch: &scratch_buffer.0,
+                    scratch_offset: 0,
+                },
+                &[accel::BuildRangeDesc {
+                    primitive_count: cube_primitive_count,
+                    primitive_offset: 0,
+                    first_vertex: 0,
+                    transform_offset: 0,
+                }][..],
+            )]);
 
-        // device
-        //     .wait_for_fence(&build_fence, !0)
-        //     .expect("Can't wait for fence");
+            cmd_buffer.pipeline_barrier(
+                PipelineStage::ACCELERATION_STRUCTURE_BUILD
+                    ..PipelineStage::ACCELERATION_STRUCTURE_BUILD,
+                Dependencies::empty(),
+                &[Barrier::AllBuffers(
+                    Access::ACCELERATION_STRUCTURE_WRITE..Access::ACCELERATION_STRUCTURE_READ,
+                )],
+            );
+
+            cmd_buffer.write_acceleration_structures_properties(
+                &[&teapot_blas.accel_struct],
+                hal::query::Type::AccelerationStructureCompactedSize,
+                &compacted_size_pool,
+                0,
+            );
+
+            cmd_buffer.write_acceleration_structures_properties(
+                &[&teapot_blas.accel_struct],
+                hal::query::Type::AccelerationStructureSerializationSize,
+                &serialized_size_pool,
+                0,
+            );
+
+            cmd_buffer.finish();
+
+            queue_group.queues[0]
+                .submit_without_semaphores(Some(&cmd_buffer), Some(&mut build_fence));
+
+            device
+                .wait_for_fence(&build_fence, !0)
+                .expect("Can't wait for fence");
+
+            let mut data = std::iter::repeat(0)
+                .take(1 * mem::size_of::<u32>())
+                .collect::<Vec<_>>();
+            device
+                .get_query_pool_results(
+                    &compacted_size_pool,
+                    0..query_count,
+                    data.as_mut_slice(),
+                    mem::size_of::<u32>() as hal::buffer::Stride,
+                    hal::query::ResultFlags::WAIT,
+                )
+                .unwrap();
+            let teapot_blas_compacted_size = (data.as_ptr() as *const u32).read();
+            dbg!(teapot_blas_compacted_size);
+
+            let mut data = std::iter::repeat(0)
+                .take(1 * mem::size_of::<u32>())
+                .collect::<Vec<_>>();
+            device
+                .get_query_pool_results(
+                    &serialized_size_pool,
+                    0..query_count,
+                    data.as_mut_slice(),
+                    mem::size_of::<u32>() as hal::buffer::Stride,
+                    hal::query::ResultFlags::WAIT,
+                )
+                .unwrap();
+            let teapot_blas_serialized_size = (data.as_ptr() as *const u32).read();
+            dbg!(teapot_blas_serialized_size);
+        }
+
+        let instances = [{
+            let mut instance =
+                accel::Instance::new(device.get_buffer_address(&teapot_blas.backing.0));
+            instance
+        }];
+
+        dbg!(&instances);
+
+        let instances_buffer = upload_to_buffer::<back::Backend, _>(
+            &device,
+            limits.non_coherent_atom_size as u64,
+            &memory_types,
+            buffer::Usage::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY
+                | buffer::Usage::SHADER_DEVICE_ADDRESS,
+            &instances,
+        );
+
+        let top_level_geometry_desc = accel::GeometryDesc {
+            flags: accel::Flags::ALLOW_COMPACTION,
+            ty: accel::Type::TopLevel,
+            geometries: &[&accel::Geometry {
+                flags: accel::GeometryFlags::OPAQUE,
+                geometry: accel::GeometryData::Instances(GeometryInstances {
+                    buffer: &instances_buffer.0,
+                    buffer_offset: 0,
+                }),
+            }],
+        };
+
+        let tlas_requirements =
+            device.get_acceleration_structure_build_requirements(&top_level_geometry_desc, &[1]);
+        dbg!(&tlas_requirements);
+
+        let tlas_scratch_buffer = create_empty_buffer::<back::Backend>(
+            &device,
+            limits.non_coherent_atom_size as u64,
+            &memory_types,
+            buffer::Usage::ACCELERATION_STRUCTURE_STORAGE | buffer::Usage::SHADER_DEVICE_ADDRESS,
+            teapot_blas_requirements.build_scratch_size,
+        );
+
+        let tlas_buffer = create_empty_buffer::<back::Backend>(
+            &device,
+            limits.non_coherent_atom_size as u64,
+            &memory_types,
+            buffer::Usage::ACCELERATION_STRUCTURE_STORAGE | buffer::Usage::SHADER_DEVICE_ADDRESS,
+            teapot_blas_requirements.acceleration_structure_size,
+        );
+
+        let mut tlas = AccelerationStructure::<back::Backend> {
+            accel_struct: device
+                .create_acceleration_structure(&accel::CreateDesc {
+                    buffer: &tlas_buffer.0,
+                    buffer_offset: 0,
+                    size: tlas_requirements.acceleration_structure_size,
+                    ty: accel::Type::TopLevel,
+                })
+                .unwrap(),
+            backing: tlas_buffer,
+        };
+
+        {
+            let query_count = 1;
+            let compacted_size_pool = device
+                .create_query_pool(
+                    hal::query::Type::AccelerationStructureCompactedSize,
+                    query_count,
+                )
+                .unwrap();
+            let serialized_size_pool = device
+                .create_query_pool(
+                    hal::query::Type::AccelerationStructureSerializationSize,
+                    query_count,
+                )
+                .unwrap();
+
+            let mut build_fence = device.create_fence(false).unwrap();
+            let mut cmd_buffer = command_pool.allocate_one(command::Level::Primary);
+            cmd_buffer.begin_primary(command::CommandBufferFlags::ONE_TIME_SUBMIT);
+
+            cmd_buffer.build_acceleration_structures(&[(
+                &accel::BuildDesc {
+                    src: None,
+                    dst: &tlas.accel_struct,
+                    geometry: &top_level_geometry_desc,
+                    scratch: &tlas_scratch_buffer.0,
+                    scratch_offset: 0,
+                },
+                &[accel::BuildRangeDesc {
+                    primitive_count: 1,
+                    primitive_offset: 0,
+                    first_vertex: 0,
+                    transform_offset: 0,
+                }][..],
+            )]);
+
+            cmd_buffer.pipeline_barrier(
+                PipelineStage::ACCELERATION_STRUCTURE_BUILD
+                    ..PipelineStage::ACCELERATION_STRUCTURE_BUILD,
+                Dependencies::empty(),
+                &[Barrier::AllBuffers(
+                    Access::ACCELERATION_STRUCTURE_WRITE..Access::ACCELERATION_STRUCTURE_READ,
+                )],
+            );
+
+            cmd_buffer.write_acceleration_structures_properties(
+                &[&tlas.accel_struct],
+                hal::query::Type::AccelerationStructureCompactedSize,
+                &compacted_size_pool,
+                0,
+            );
+
+            cmd_buffer.write_acceleration_structures_properties(
+                &[&tlas.accel_struct],
+                hal::query::Type::AccelerationStructureSerializationSize,
+                &serialized_size_pool,
+                0,
+            );
+
+            cmd_buffer.finish();
+
+            queue_group.queues[0]
+                .submit_without_semaphores(Some(&cmd_buffer), Some(&mut build_fence));
+
+            device
+                .wait_for_fence(&build_fence, !0)
+                .expect("Can't wait for fence");
+
+            let mut data = std::iter::repeat(0)
+                .take(1 * mem::size_of::<u32>())
+                .collect::<Vec<_>>();
+            device
+                .get_query_pool_results(
+                    &compacted_size_pool,
+                    0..query_count,
+                    data.as_mut_slice(),
+                    mem::size_of::<u32>() as hal::buffer::Stride,
+                    hal::query::ResultFlags::WAIT,
+                )
+                .unwrap();
+            let tlas_compacted_size = (data.as_ptr() as *const u32).read();
+            dbg!(tlas_compacted_size);
+
+            let mut data = std::iter::repeat(0)
+                .take(1 * mem::size_of::<u32>())
+                .collect::<Vec<_>>();
+            device
+                .get_query_pool_results(
+                    &serialized_size_pool,
+                    0..query_count,
+                    data.as_mut_slice(),
+                    mem::size_of::<u32>() as hal::buffer::Stride,
+                    hal::query::ResultFlags::WAIT,
+                )
+                .unwrap();
+            let tlas_serialized_size = (data.as_ptr() as *const u32).read();
+            dbg!(tlas_serialized_size);
+        }
     }
+}
+
+#[derive(Debug)]
+struct AccelerationStructure<B: hal::Backend> {
+    accel_struct: B::AccelerationStructure,
+    backing: (B::Buffer, B::Memory),
 }
 
 fn create_empty_buffer<B: hal::Backend>(

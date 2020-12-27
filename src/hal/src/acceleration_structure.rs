@@ -165,9 +165,20 @@ pub struct GeometryTriangles<'a, B: Backend> {
 
 /// A 3x4 row-major affine transformation matrix.
 // TODO `GeometryTriangles::transform` depends on the layout of this struct
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
 pub struct TransformMatrix([[f32; 4]; 3]);
+
+impl TransformMatrix {
+    /// TODO docs
+    pub fn identity() -> Self {
+        Self([
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ])
+    }
+}
 
 /// Geometry data containing axis-aligned bounding box data.
 #[derive(Debug)]
@@ -187,7 +198,7 @@ pub struct GeometryAabbs<'a, B: Backend> {
 
 /// An axis-aligned bounding box.
 // TODO `GeometryAabbs::buffer` depends on the layout of this struct
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct AabbPositions {
     /// A 3D position containing the minimum corner of the AABB.
@@ -213,7 +224,7 @@ pub struct GeometryInstances<'a, B: Backend> {
 
 bitflags! {
     /// Option flags for an acceleration structure instance.
-    pub struct InstanceFlags: u32 {
+    pub struct InstanceFlags: u8 {
         /// Disables face culling for this instance.
         const TRIANGLE_FACING_CULL_DISABLE = 0x1;
         /// Reverses front and back sides of geometry's triangles.
@@ -231,27 +242,170 @@ bitflags! {
     }
 }
 
+/// todo docs
+#[derive(Copy, Clone)]
+#[repr(transparent)]
+// TODO private ctor that backends have access to?
+pub struct BufferAddress(pub u64);
+
+impl std::fmt::Debug for BufferAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0x{:x}", self.0)
+    }
+}
+
 // TODO AFAIK rust doesn't have custom sized fields, so we'll need some binary writer wrapper to actually support this at an API level.
 /// An instance pointing to some bottom-level acceleration structure data.
 /// TODO `GeometryInstances::buffer` depends on the layout of this struct, which is not correct yet
-#[derive(Debug)]
+#[derive(Clone)]
+#[repr(C)]
 pub struct Instance {
-    transform: TransformMatrix,
     /// TODO docs
-    // 24 bits
-    instance_custom_index: u32,
+    pub transform: TransformMatrix,
     /// TODO docs
-    // 8 bits visibility mask for the geometry. The instance may only be hit if rayMask & instance.mask != 0
-    mask: u32,
+    /// - Top 24 bits are the custom index
+    /// - Bottom 8 bits are the visibility mask for the geometry. The instance may only be hit if rayMask & instance.mask != 0
+    pub instance_custom_index_24_and_mask_8: u32,
     /// TODO docs
-    // 24 bit
-    instance_shader_binding_table_record_offset: u32,
-    /// TODO docs
-    // 8 bits
-    flags: InstanceFlags,
+    /// - Top 24bits are the SBT record offset
+    /// - Bottom 8 bits are `InstanceFlags`
+    pub instance_shader_binding_table_record_offset_24_and_flags_8: u32,
+
+    // /// TODO docs
+    // // 24 bits
+    // instance_custom_index: u32,
+    // /// TODO docs
+    // // 8 bits visibility mask for the geometry. The instance may only be hit if rayMask & instance.mask != 0
+    // mask: u32,
+    // /// TODO docs
+    // // 24 bit
+    // instance_shader_binding_table_record_offset: u32,
+    // /// TODO docs
+    // // 8 bits
+    // flags: InstanceFlags,
     /// TODO docs
     // TODO(host-commands): either B::AccelerationStructure (host commands) or GPU address (buffer + offset?)
-    acceleration_structure_reference: u64,
+    pub acceleration_structure_reference: BufferAddress,
+}
+
+const TOP_24_MASK: u32 = 0xFFFFFF00;
+const BOTTOM_8_MASK: u32 = 0xFF;
+
+impl std::fmt::Debug for Instance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Instance")
+            .field("transform", &self.transform)
+            .field(
+                "instance_custom_index",
+                &(self.instance_custom_index_24_and_mask_8 & TOP_24_MASK >> 8),
+            )
+            .field(
+                "mask",
+                &(self.instance_custom_index_24_and_mask_8 & BOTTOM_8_MASK),
+            )
+            .field(
+                "instance_shader_binding_table_record_offset",
+                &(self.instance_shader_binding_table_record_offset_24_and_flags_8
+                    & TOP_24_MASK >> 8),
+            )
+            .field(
+                "flags",
+                &(InstanceFlags::from_bits(
+                    (self.instance_shader_binding_table_record_offset_24_and_flags_8
+                        & BOTTOM_8_MASK) as u8,
+                )
+                .unwrap()),
+            )
+            .field(
+                "acceleration_structure_reference",
+                &self.acceleration_structure_reference,
+            )
+            .finish()
+    }
+}
+
+// TODO tests
+impl Instance {
+    /// TODO docs
+    pub fn new(blas: BufferAddress) -> Self {
+        Self {
+            transform: TransformMatrix::identity(),
+            instance_custom_index_24_and_mask_8: 0,
+            instance_shader_binding_table_record_offset_24_and_flags_8: 0,
+            acceleration_structure_reference: blas,
+        }
+    }
+
+    fn fits_in_24_bits(n: u32) -> bool {
+        n < 2 << 24
+    }
+
+    fn replace_bits(destination: u32, new_bits: u32, mask: u32) -> u32 {
+        destination ^ ((destination ^ new_bits) & mask)
+    }
+
+    /// TODO docs
+    pub fn set_instance_custom_index_bits(&mut self, instance_custom_index: u32) {
+        assert!(Self::fits_in_24_bits(instance_custom_index));
+        self.instance_custom_index_24_and_mask_8 = Self::replace_bits(
+            self.instance_custom_index_24_and_mask_8,
+            instance_custom_index << 8,
+            TOP_24_MASK,
+        );
+    }
+
+    /// TODO docs
+    pub fn set_mask_bits(&mut self, mask: u8) {
+        self.instance_custom_index_24_and_mask_8 = Self::replace_bits(
+            self.instance_custom_index_24_and_mask_8,
+            mask as u32,
+            BOTTOM_8_MASK,
+        );
+    }
+
+    /// TODO docs
+    pub fn set_instance_shader_binding_table_record_offset_bits(
+        &mut self,
+        instance_shader_binding_table_record_offset: u32,
+    ) {
+        assert!(Self::fits_in_24_bits(
+            instance_shader_binding_table_record_offset
+        ));
+        self.instance_shader_binding_table_record_offset_24_and_flags_8 = Self::replace_bits(
+            self.instance_shader_binding_table_record_offset_24_and_flags_8,
+            instance_shader_binding_table_record_offset << 8,
+            TOP_24_MASK,
+        );
+    }
+
+    /// TODO docs
+    pub fn set_flags_bits(&mut self, flags: InstanceFlags) {
+        self.instance_shader_binding_table_record_offset_24_and_flags_8 = Self::replace_bits(
+            self.instance_shader_binding_table_record_offset_24_and_flags_8,
+            flags.bits() as u32,
+            BOTTOM_8_MASK,
+        );
+    }
+}
+
+#[cfg(test)]
+mod stuct_size_tests {
+    use super::*;
+
+    #[test]
+    fn transform_matrix() {
+        assert_eq!(std::mem::size_of::<TransformMatrix>(), 48);
+    }
+
+    #[test]
+    fn aabb_positions() {
+        assert_eq!(std::mem::size_of::<AabbPositions>(), 24);
+    }
+
+    #[test]
+    fn instance() {
+        assert_eq!(std::mem::size_of::<Instance>(), 64);
+    }
 }
 
 /// The size requirements describing how big to make the buffers needed to create an acceleration structure.

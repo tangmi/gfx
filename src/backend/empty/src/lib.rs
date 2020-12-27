@@ -494,6 +494,13 @@ impl device::Device<Backend> for Device {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
+    unsafe fn get_buffer_address(
+        &self,
+        _buffer: &Buffer,
+    ) -> hal::acceleration_structure::BufferAddress {
+        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
+    }
+
     unsafe fn map_memory(
         &self,
         memory: &Memory,
