@@ -482,7 +482,7 @@ impl device::Device<Backend> for Device {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
-    unsafe fn destroy_acceleration_structure(&self, _acceleration_structure: ()) {
+    unsafe fn destroy_acceleration_structure(&self, _accel_struct: ()) {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
@@ -494,10 +494,10 @@ impl device::Device<Backend> for Device {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
-    unsafe fn get_buffer_address(
+    unsafe fn get_acceleration_structure_address(
         &self,
-        _buffer: &Buffer,
-    ) -> hal::acceleration_structure::BufferAddress {
+        _accel_struct: &(),
+    ) -> hal::acceleration_structure::DeviceAddress {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
@@ -612,7 +612,7 @@ impl device::Device<Backend> for Device {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
-    unsafe fn set_acceleration_structure_name(&self, _acceleration_structure: &mut (), name: &str) {
+    unsafe fn set_acceleration_structure_name(&self, _accel_struct: &mut (), name: &str) {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
@@ -1041,11 +1041,9 @@ impl command::CommandBuffer<Backend> for CommandBuffer {
         I: IntoIterator<
             Item = &'a (
                 &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
-                // `indirect_device_address` is a buffer device address that points to BuildDesc.geometry.geometries.len() BuildRangeDesc structures defining dynamic offsets to the addresses where geometry data is stored, as defined by BuildDesc.
                 &'a Buffer,
                 hal::buffer::Offset,
-                hal::buffer::Offset, // stride
-                // max_primitive_counts is an array of BuildDesc.geometry.geometries.len() values indicating the maximum number of primitives that will be built by this command for each geometry.
+                hal::buffer::Stride,
                 &'a [u32],
             ),
         >,
@@ -1085,7 +1083,7 @@ impl command::CommandBuffer<Backend> for CommandBuffer {
 
     unsafe fn write_acceleration_structures_properties(
         &self,
-        _structures: &[&()],
+        _accel_structs: &[&()],
         _query_type: query::Type,
         _pool: &(),
         _first_query: u32,

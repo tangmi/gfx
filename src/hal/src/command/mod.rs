@@ -627,7 +627,7 @@ pub trait CommandBuffer<B: Backend>: fmt::Debug + Any + Send + Sync {
                 // `indirect_device_address` is a buffer device address that points to BuildDesc.geometry.geometries.len() BuildRangeDesc structures defining dynamic offsets to the addresses where geometry data is stored, as defined by BuildDesc.
                 &'a B::Buffer,
                 buffer::Offset,
-                buffer::Offset, // stride
+                buffer::Stride,
                 // max_primitive_counts is an array of BuildDesc.geometry.geometries.len() values indicating the maximum number of primitives that will be built by this command for each geometry.
                 &'a [u32],
             ),
@@ -665,7 +665,7 @@ pub trait CommandBuffer<B: Backend>: fmt::Debug + Any + Send + Sync {
     /// TODO docs
     unsafe fn write_acceleration_structures_properties(
         &self,
-        structures: &[&B::AccelerationStructure],
+        accel_structs: &[&B::AccelerationStructure],
         query_type: query::Type,
         pool: &B::QueryPool,
         first_query: u32,

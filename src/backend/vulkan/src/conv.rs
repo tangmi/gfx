@@ -198,7 +198,7 @@ pub fn map_descriptor_type(ty: pso::DescriptorType) -> vk::DescriptorType {
         },
         pso::DescriptorType::InputAttachment => vk::DescriptorType::INPUT_ATTACHMENT,
         pso::DescriptorType::AccelerationStructure => {
-            todo!()
+            vk::DescriptorType::ACCELERATION_STRUCTURE_KHR
         }
     }
 }
@@ -724,6 +724,17 @@ pub fn map_acceleration_structure_type(
             vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL
         }
         hal::acceleration_structure::Type::Generic => vk::AccelerationStructureTypeKHR::GENERIC,
+    }
+}
+
+pub fn map_acceleration_structure_copy_mode(
+    ty: hal::acceleration_structure::CopyMode,
+) -> vk::CopyAccelerationStructureModeKHR {
+    match ty {
+        hal::acceleration_structure::CopyMode::Copy => vk::CopyAccelerationStructureModeKHR::CLONE,
+        hal::acceleration_structure::CopyMode::Compact => {
+            vk::CopyAccelerationStructureModeKHR::COMPACT
+        }
     }
 }
 

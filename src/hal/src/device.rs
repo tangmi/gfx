@@ -741,26 +741,22 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
     ) -> Result<B::AccelerationStructure, OutOfMemory>;
 
     /// Destroy an acceleration structure object.
-    unsafe fn destroy_acceleration_structure(
-        &self,
-        acceleration_structure: B::AccelerationStructure,
-    );
+    unsafe fn destroy_acceleration_structure(&self, accel_struct: B::AccelerationStructure);
 
     /// Get the size requirements for the buffers needed to build an acceleration structure.
     unsafe fn get_acceleration_structure_build_requirements(
         &self,
-        // used for host operations
-        // build_type: acceleration_structure::HostOrDevice,
+        // TODO(host-commands): build_type: acceleration_structure::HostOrDevice,
         build_info: &acceleration_structure::GeometryDesc<B>,
         // must be a parallel array to `build_info.geometries` containing the primitive counts for each geometry.
         max_primitives_counts: &[u32],
     ) -> acceleration_structure::SizeRequirements;
 
-    /// Get the device address of a buffer for use in top-level acceleration structures.
-    unsafe fn get_buffer_address(
+    /// Get the device address of a bottom-level acceleration structure for use in top-level acceleration structures `acceleration_structure::Instance`s.
+    unsafe fn get_acceleration_structure_address(
         &self,
-        buffer: &B::Buffer,
-    ) -> acceleration_structure::BufferAddress;
+        accel_struct: &B::AccelerationStructure,
+    ) -> acceleration_structure::DeviceAddress;
 
     // TODO(host-commands)
     // - build_acceleration_structures
@@ -817,7 +813,7 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
     /// validation layers that can print a friendly name when referring to objects in error messages
     unsafe fn set_acceleration_structure_name(
         &self,
-        acceleration_structure: &mut B::AccelerationStructure,
+        accel_struct: &mut B::AccelerationStructure,
         name: &str,
     );
 }

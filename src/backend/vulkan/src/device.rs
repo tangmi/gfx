@@ -7,7 +7,6 @@ use ash::{
 use smallvec::SmallVec;
 
 use hal::{
-    acceleration_structure::GeometryFlags,
     memory::{Requirements, Segment},
     pool::CommandPoolCreateFlags,
     pso::VertexInputRate,
@@ -1628,10 +1627,21 @@ impl d::Device<B> for Device {
         J: IntoIterator,
         J::Item: Borrow<pso::Descriptor<'a, B>>,
     {
+        /// Stores the
+        struct RawWriteOffsets {
+            image_info: usize,
+            buffer_info: usize,
+            texel_buffer_view: usize,
+            accel_struct: usize,
+        }
+
         let mut raw_writes = Vec::<vk::WriteDescriptorSet>::new();
+        // Parallel array to `raw_writes`.
+        let mut raw_writes_indices = Vec::<RawWriteOffsets>::new();
         let mut image_infos = Vec::new();
         let mut buffer_infos = Vec::new();
         let mut texel_buffer_views = Vec::new();
+        let mut accel_structs = Vec::new();
 
         for sw in write_iter {
             // gfx-hal allows the type and stages to be different between the descriptor
@@ -1672,9 +1682,15 @@ impl d::Device<B> for Device {
                         },
                         descriptor_count: 1,
                         descriptor_type,
-                        p_image_info: image_infos.len() as _,
-                        p_buffer_info: buffer_infos.len() as _,
-                        p_texel_buffer_view: texel_buffer_views.len() as _,
+                        p_image_info: ptr::null(),
+                        p_buffer_info: ptr::null(),
+                        p_texel_buffer_view: ptr::null(),
+                    });
+                    raw_writes_indices.push(RawWriteOffsets {
+                        image_info: image_infos.len(),
+                        buffer_info: buffer_infos.len(),
+                        texel_buffer_view: texel_buffer_views.len(),
+                        accel_struct: accel_structs.len(),
                     });
                 }
 
@@ -1718,15 +1734,19 @@ impl d::Device<B> for Device {
                     pso::Descriptor::TexelBuffer(view) => {
                         texel_buffer_views.push(view.raw);
                     }
-                    pso::Descriptor::AccelerationStructure(_) => {
-                        todo!()
+                    pso::Descriptor::AccelerationStructure(accel_struct) => {
+                        accel_structs.push(accel_struct.0);
                     }
                 }
             }
         }
 
+        let mut accel_structure_writes =
+            Vec::<vk::WriteDescriptorSetAccelerationStructureKHR>::new();
+
         // Patch the pointers now that we have all the storage allocated.
-        for raw in &mut raw_writes {
+        debug_assert_eq!(raw_writes.len(), raw_writes_indices.len());
+        for (raw, offsets) in raw_writes.iter_mut().zip(raw_writes_indices) {
             use crate::vk::DescriptorType as Dt;
             match raw.descriptor_type {
                 Dt::SAMPLER
@@ -1734,23 +1754,27 @@ impl d::Device<B> for Device {
                 | Dt::STORAGE_IMAGE
                 | Dt::COMBINED_IMAGE_SAMPLER
                 | Dt::INPUT_ATTACHMENT => {
-                    raw.p_buffer_info = ptr::null();
-                    raw.p_texel_buffer_view = ptr::null();
-                    raw.p_image_info = image_infos[raw.p_image_info as usize..].as_ptr();
+                    raw.p_image_info = image_infos[offsets.image_info..].as_ptr();
                 }
                 Dt::UNIFORM_TEXEL_BUFFER | Dt::STORAGE_TEXEL_BUFFER => {
-                    raw.p_buffer_info = ptr::null();
-                    raw.p_image_info = ptr::null();
                     raw.p_texel_buffer_view =
-                        texel_buffer_views[raw.p_texel_buffer_view as usize..].as_ptr();
+                        texel_buffer_views[offsets.texel_buffer_view..].as_ptr();
                 }
                 Dt::UNIFORM_BUFFER
                 | Dt::STORAGE_BUFFER
                 | Dt::STORAGE_BUFFER_DYNAMIC
                 | Dt::UNIFORM_BUFFER_DYNAMIC => {
-                    raw.p_image_info = ptr::null();
-                    raw.p_texel_buffer_view = ptr::null();
-                    raw.p_buffer_info = buffer_infos[raw.p_buffer_info as usize..].as_ptr();
+                    raw.p_buffer_info = buffer_infos[offsets.buffer_info..].as_ptr();
+                }
+                Dt::ACCELERATION_STRUCTURE_KHR => {
+                    accel_structure_writes.push(vk::WriteDescriptorSetAccelerationStructureKHR {
+                        s_type: vk::StructureType::WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR,
+                        p_next: ptr::null(),
+                        acceleration_structure_count: 1,
+                        p_acceleration_structures: accel_structs[offsets.accel_struct..].as_ptr(),
+                    });
+
+                    raw.p_next = accel_structure_writes.last_mut().unwrap() as *mut _ as *mut _;
                 }
                 _ => panic!("unknown descriptor type"),
             }
@@ -2100,10 +2124,7 @@ impl d::Device<B> for Device {
 
     unsafe fn get_acceleration_structure_build_requirements(
         &self,
-        // used for host operations
-        // build_type: acceleration_structure::HostOrDevice,
         build_info: &hal::acceleration_structure::GeometryDesc<B>,
-        // must be a parallel array to `build_info.geometries` containing the primitive counts for each geometry.
         max_primitives_counts: &[u32],
     ) -> hal::acceleration_structure::SizeRequirements {
         let build_info = vk::AccelerationStructureBuildGeometryInfoKHR::builder()
@@ -2142,20 +2163,20 @@ impl d::Device<B> for Device {
         }
     }
 
-    unsafe fn get_buffer_address(
+    unsafe fn get_acceleration_structure_address(
         &self,
-        buffer: &n::Buffer,
-    ) -> hal::acceleration_structure::BufferAddress {
-        hal::acceleration_structure::BufferAddress(
+        accel_struct: &n::AccelerationStructure,
+    ) -> hal::acceleration_structure::DeviceAddress {
+        hal::acceleration_structure::DeviceAddress(
             self.shared
                 .extension_fns
-                .buffer_device_address
+                .acceleration_structure
                 .as_ref()
                 .expect("TODO msg")
-                .get_buffer_device_address_khr(
+                .get_acceleration_structure_device_address(
                     self.shared.raw.handle(),
-                    &vk::BufferDeviceAddressInfo::builder()
-                        .buffer(buffer.raw)
+                    &vk::AccelerationStructureDeviceAddressInfoKHR::builder()
+                        .acceleration_structure(accel_struct.0)
                         .build(),
                 ),
         )
@@ -2240,16 +2261,13 @@ impl d::Device<B> for Device {
         self.shared.raw.destroy_event(event.0, None);
     }
 
-    unsafe fn destroy_acceleration_structure(
-        &self,
-        acceleration_structure: n::AccelerationStructure,
-    ) {
+    unsafe fn destroy_acceleration_structure(&self, accel_struct: n::AccelerationStructure) {
         self.shared
             .extension_fns
             .acceleration_structure
             .as_ref()
             .expect("TODO msg")
-            .destroy_acceleration_structure(acceleration_structure.0, None);
+            .destroy_acceleration_structure(accel_struct.0, None);
     }
 
     fn wait_idle(&self) -> Result<(), d::OutOfMemory> {
@@ -2323,12 +2341,12 @@ impl d::Device<B> for Device {
 
     unsafe fn set_acceleration_structure_name(
         &self,
-        acceleration_structure: &mut n::AccelerationStructure,
+        accel_struct: &mut n::AccelerationStructure,
         name: &str,
     ) {
         self.set_object_name(
             vk::ObjectType::ACCELERATION_STRUCTURE_KHR,
-            acceleration_structure.0.as_raw(),
+            accel_struct.0.as_raw(),
             name,
         )
     }

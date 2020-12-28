@@ -243,49 +243,57 @@ bitflags! {
 }
 
 /// todo docs
+///
+/// pls do not by tempted by the inner value!
 #[derive(Copy, Clone)]
 #[repr(transparent)]
 // TODO private ctor that backends have access to?
-pub struct BufferAddress(pub u64);
+pub struct DeviceAddress(pub u64);
 
-impl std::fmt::Debug for BufferAddress {
+impl std::fmt::Debug for DeviceAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "0x{:x}", self.0)
+        struct DebugAsHex(u64);
+
+        impl std::fmt::Debug for DebugAsHex {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                std::fmt::LowerHex::fmt(&self.0, f)
+            }
+        }
+
+        f.debug_tuple("DeviceAddress")
+            .field(&DebugAsHex(self.0))
+            .finish()
     }
 }
 
-// TODO AFAIK rust doesn't have custom sized fields, so we'll need some binary writer wrapper to actually support this at an API level.
+impl std::fmt::Pointer for DeviceAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::LowerHex::fmt(&self.0, f)
+    }
+}
+
 /// An instance pointing to some bottom-level acceleration structure data.
-/// TODO `GeometryInstances::buffer` depends on the layout of this struct, which is not correct yet
+///
+/// Note: there are fields that are combined because driver APIs require this struct to have a specific layout and to be written, tightly packed, into a GPU buffer to be consumed. Consider using the helper methods on this type to assign to those fields.
 #[derive(Clone)]
 #[repr(C)]
 pub struct Instance {
-    /// TODO docs
+    /// The instance transform matrix that should be applied to the referenced acceleration structure.
     pub transform: TransformMatrix,
-    /// TODO docs
+
+    /// Combined instance custom index and mask into a single field.
     /// - Top 24 bits are the custom index
     /// - Bottom 8 bits are the visibility mask for the geometry. The instance may only be hit if rayMask & instance.mask != 0
     pub instance_custom_index_24_and_mask_8: u32,
-    /// TODO docs
-    /// - Top 24bits are the SBT record offset
+
+    /// Combined instance shader binding table record offset and flags into a single field.
+    /// - Top 24 bits are the SBT record offset
     /// - Bottom 8 bits are `InstanceFlags`
     pub instance_shader_binding_table_record_offset_24_and_flags_8: u32,
 
-    // /// TODO docs
-    // // 24 bits
-    // instance_custom_index: u32,
-    // /// TODO docs
-    // // 8 bits visibility mask for the geometry. The instance may only be hit if rayMask & instance.mask != 0
-    // mask: u32,
-    // /// TODO docs
-    // // 24 bit
-    // instance_shader_binding_table_record_offset: u32,
-    // /// TODO docs
-    // // 8 bits
-    // flags: InstanceFlags,
-    /// TODO docs
-    // TODO(host-commands): either B::AccelerationStructure (host commands) or GPU address (buffer + offset?)
-    pub acceleration_structure_reference: BufferAddress,
+    /// The bottom-level acceleration structure this `Instance` refers to.
+    // TODO(host-commands): either B::AccelerationStructure (host commands)
+    pub acceleration_structure_reference: DeviceAddress,
 }
 
 const TOP_24_MASK: u32 = 0xFFFFFF00;
@@ -297,7 +305,7 @@ impl std::fmt::Debug for Instance {
             .field("transform", &self.transform)
             .field(
                 "instance_custom_index",
-                &(self.instance_custom_index_24_and_mask_8 & TOP_24_MASK >> 8),
+                &((self.instance_custom_index_24_and_mask_8 & TOP_24_MASK) >> 8),
             )
             .field(
                 "mask",
@@ -305,8 +313,8 @@ impl std::fmt::Debug for Instance {
             )
             .field(
                 "instance_shader_binding_table_record_offset",
-                &(self.instance_shader_binding_table_record_offset_24_and_flags_8
-                    & TOP_24_MASK >> 8),
+                &((self.instance_shader_binding_table_record_offset_24_and_flags_8 & TOP_24_MASK)
+                    >> 8),
             )
             .field(
                 "flags",
@@ -327,7 +335,7 @@ impl std::fmt::Debug for Instance {
 // TODO tests
 impl Instance {
     /// TODO docs
-    pub fn new(blas: BufferAddress) -> Self {
+    pub fn new(blas: DeviceAddress) -> Self {
         Self {
             transform: TransformMatrix::identity(),
             instance_custom_index_24_and_mask_8: 0,
@@ -340,12 +348,12 @@ impl Instance {
         n < 2 << 24
     }
 
-    fn replace_bits(destination: u32, new_bits: u32, mask: u32) -> u32 {
-        destination ^ ((destination ^ new_bits) & mask)
+    fn replace_bits(destination: u32, new_bits: u32, new_bits_mask: u32) -> u32 {
+        destination ^ ((destination ^ new_bits) & new_bits_mask)
     }
 
     /// TODO docs
-    pub fn set_instance_custom_index_bits(&mut self, instance_custom_index: u32) {
+    pub fn set_instance_custom_index(&mut self, instance_custom_index: u32) {
         assert!(Self::fits_in_24_bits(instance_custom_index));
         self.instance_custom_index_24_and_mask_8 = Self::replace_bits(
             self.instance_custom_index_24_and_mask_8,
@@ -355,7 +363,7 @@ impl Instance {
     }
 
     /// TODO docs
-    pub fn set_mask_bits(&mut self, mask: u8) {
+    pub fn set_mask(&mut self, mask: u8) {
         self.instance_custom_index_24_and_mask_8 = Self::replace_bits(
             self.instance_custom_index_24_and_mask_8,
             mask as u32,
@@ -364,7 +372,7 @@ impl Instance {
     }
 
     /// TODO docs
-    pub fn set_instance_shader_binding_table_record_offset_bits(
+    pub fn set_instance_shader_binding_table_record_offset(
         &mut self,
         instance_shader_binding_table_record_offset: u32,
     ) {
@@ -379,7 +387,7 @@ impl Instance {
     }
 
     /// TODO docs
-    pub fn set_flags_bits(&mut self, flags: InstanceFlags) {
+    pub fn set_flags(&mut self, flags: InstanceFlags) {
         self.instance_shader_binding_table_record_offset_24_and_flags_8 = Self::replace_bits(
             self.instance_shader_binding_table_record_offset_24_and_flags_8,
             flags.bits() as u32,
@@ -389,7 +397,7 @@ impl Instance {
 }
 
 #[cfg(test)]
-mod stuct_size_tests {
+mod struct_size_tests {
     use super::*;
 
     #[test]

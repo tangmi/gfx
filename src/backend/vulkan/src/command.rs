@@ -1143,11 +1143,9 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
         I: IntoIterator<
             Item = &'a (
                 &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
-                // `indirect_device_address` is a buffer device address that points to BuildDesc.geometry.geometries.len() BuildRangeDesc structures defining dynamic offsets to the addresses where geometry data is stored, as defined by BuildDesc.
                 &'a n::Buffer,
                 buffer::Offset,
-                buffer::Offset, // stride
-                // max_primitive_counts is an array of BuildDesc.geometry.geometries.len() values indicating the maximum number of primitives that will be built by this command for each geometry.
+                buffer::Stride,
                 &'a [u32],
             ),
         >,
@@ -1162,7 +1160,19 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
         dst: &n::AccelerationStructure,
         mode: hal::acceleration_structure::CopyMode,
     ) {
-        todo!()
+        self.device
+            .extension_fns
+            .acceleration_structure
+            .as_ref()
+            .expect("TODO msg")
+            .cmd_copy_acceleration_structure(
+                self.raw,
+                &vk::CopyAccelerationStructureInfoKHR::builder()
+                    .src(src.0)
+                    .dst(dst.0)
+                    .mode(conv::map_acceleration_structure_copy_mode(mode))
+                    .build(),
+            )
     }
 
     unsafe fn copy_acceleration_structure_to_memory(
@@ -1189,7 +1199,7 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
 
     unsafe fn write_acceleration_structures_properties(
         &self,
-        structures: &[&n::AccelerationStructure],
+        accel_structs: &[&n::AccelerationStructure],
         query_type: query::Type,
         pool: &n::QueryPool,
         first_query: u32,
@@ -1201,7 +1211,7 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
             .expect("TODO msg")
             .cmd_write_acceleration_structures_properties(
                 self.raw,
-                structures
+                accel_structs
                     .iter()
                     .map(|a| a.0)
                     .collect::<Vec<_>>()

@@ -17,10 +17,6 @@ extern crate gfx_backend_metal as back;
 #[cfg(feature = "vulkan")]
 extern crate gfx_backend_vulkan as back;
 
-use accel::{CreateDesc, GeometryInstances};
-use buffer::Access;
-use mem::{size_of, MaybeUninit};
-use memory::{Barrier, Dependencies};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
@@ -32,22 +28,11 @@ pub fn wasm_main() {
 }
 
 use hal::{
-    acceleration_structure as accel, adapter,
-    buffer::{self},
-    command, format, memory, pool,
-    prelude::*,
-    pso::PipelineStage,
-    window, Backend, IndexType,
+    acceleration_structure as accel, adapter, buffer, command, format, memory, pool, prelude::*,
+    pso, window, IndexType,
 };
 
-use std::{
-    borrow::Borrow,
-    io::Cursor,
-    iter,
-    mem::{self, ManuallyDrop},
-    ops::{Deref, DerefMut},
-    ptr,
-};
+use std::{iter, mem, ops, ptr};
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const DIMS: window::Extent2D = window::Extent2D { width: 1024, height: 768 };
@@ -243,12 +228,14 @@ fn main() {
             }],
         };
 
-        let cube_primitive_count = (teapot_indices.len() / 3) as u32;
-        let teapot_blas_requirements = device
-            .get_acceleration_structure_build_requirements(&geometry_desc, &[cube_primitive_count]);
+        let teapot_primitive_count = (teapot_indices.len() / 3) as u32;
+        let teapot_blas_requirements = device.get_acceleration_structure_build_requirements(
+            &geometry_desc,
+            &[teapot_primitive_count],
+        );
 
-        let raw_size =
-            teapot_vertices.len() * size_of::<Vertex>() + teapot_vertices.len() * size_of::<u16>();
+        let raw_size = teapot_vertices.len() * mem::size_of::<Vertex>()
+            + teapot_vertices.len() * mem::size_of::<u16>();
         dbg!(teapot_vertices.len());
         dbg!(teapot_indices.len());
         dbg!(raw_size);
@@ -292,6 +279,8 @@ fn main() {
         device.set_acceleration_structure_name(&mut teapot_blas.accel_struct, "teapot");
 
         {
+            // build the blas + get the compacted size
+
             let query_count = 1;
             let compacted_size_pool = device
                 .create_query_pool(
@@ -319,7 +308,7 @@ fn main() {
                     scratch_offset: 0,
                 },
                 &[accel::BuildRangeDesc {
-                    primitive_count: cube_primitive_count,
+                    primitive_count: teapot_primitive_count,
                     primitive_offset: 0,
                     first_vertex: 0,
                     transform_offset: 0,
@@ -327,11 +316,12 @@ fn main() {
             )]);
 
             cmd_buffer.pipeline_barrier(
-                PipelineStage::ACCELERATION_STRUCTURE_BUILD
-                    ..PipelineStage::ACCELERATION_STRUCTURE_BUILD,
-                Dependencies::empty(),
-                &[Barrier::AllBuffers(
-                    Access::ACCELERATION_STRUCTURE_WRITE..Access::ACCELERATION_STRUCTURE_READ,
+                pso::PipelineStage::ACCELERATION_STRUCTURE_BUILD
+                    ..pso::PipelineStage::ACCELERATION_STRUCTURE_BUILD,
+                memory::Dependencies::empty(),
+                &[memory::Barrier::AllBuffers(
+                    buffer::Access::ACCELERATION_STRUCTURE_WRITE
+                        ..buffer::Access::ACCELERATION_STRUCTURE_READ,
                 )],
             );
 
@@ -370,8 +360,13 @@ fn main() {
                     hal::query::ResultFlags::WAIT,
                 )
                 .unwrap();
-            let teapot_blas_compacted_size = (data.as_ptr() as *const u32).read();
-            dbg!(teapot_blas_compacted_size);
+            let teapot_blas_compacted_size = (data.as_ptr() as *const u32).read() as u64;
+            dbg!(
+                teapot_blas_compacted_size,
+                teapot_blas_requirements.acceleration_structure_size - teapot_blas_compacted_size,
+                teapot_blas_compacted_size as f64
+                    / teapot_blas_requirements.acceleration_structure_size as f64
+            );
 
             let mut data = std::iter::repeat(0)
                 .take(1 * mem::size_of::<u32>())
@@ -387,11 +382,62 @@ fn main() {
                 .unwrap();
             let teapot_blas_serialized_size = (data.as_ptr() as *const u32).read();
             dbg!(teapot_blas_serialized_size);
+
+            {
+                // compact it!
+
+                let accel_struct_bottom_buffer_compact = create_empty_buffer::<back::Backend>(
+                    &device,
+                    limits.non_coherent_atom_size as u64,
+                    &memory_types,
+                    buffer::Usage::ACCELERATION_STRUCTURE_STORAGE
+                        | buffer::Usage::SHADER_DEVICE_ADDRESS,
+                    teapot_blas_compacted_size,
+                );
+                let mut teapot_blas_compact = AccelerationStructure::<back::Backend> {
+                    accel_struct: device
+                        .create_acceleration_structure(&accel::CreateDesc {
+                            buffer: &accel_struct_bottom_buffer_compact.0,
+                            buffer_offset: 0,
+                            size: teapot_blas_compacted_size,
+                            ty: accel::Type::BottomLevel,
+                        })
+                        .unwrap(),
+                    backing: accel_struct_bottom_buffer_compact,
+                };
+                device.set_acceleration_structure_name(
+                    &mut teapot_blas_compact.accel_struct,
+                    "teapot_compact",
+                );
+
+                let mut build_fence = device.create_fence(false).unwrap();
+                let mut cmd_buffer = command_pool.allocate_one(command::Level::Primary);
+                cmd_buffer.begin_primary(command::CommandBufferFlags::ONE_TIME_SUBMIT);
+
+                cmd_buffer.copy_acceleration_structure(
+                    &teapot_blas.accel_struct,
+                    &teapot_blas_compact.accel_struct,
+                    accel::CopyMode::Compact,
+                );
+
+                cmd_buffer.finish();
+
+                queue_group.queues[0]
+                    .submit_without_semaphores(Some(&cmd_buffer), Some(&mut build_fence));
+
+                device
+                    .wait_for_fence(&build_fence, !0)
+                    .expect("Can't wait for fence");
+
+                let _ = mem::replace(&mut teapot_blas, teapot_blas_compact);
+            }
         }
 
         let instances = [{
-            let mut instance =
-                accel::Instance::new(device.get_buffer_address(&teapot_blas.backing.0));
+            let mut instance = accel::Instance::new(
+                device.get_acceleration_structure_address(&teapot_blas.accel_struct),
+            );
+            // instance.set_flags(accel::InstanceFlags::FORCE_OPAQUE);
             instance
         }];
 
@@ -411,7 +457,7 @@ fn main() {
             ty: accel::Type::TopLevel,
             geometries: &[&accel::Geometry {
                 flags: accel::GeometryFlags::OPAQUE,
-                geometry: accel::GeometryData::Instances(GeometryInstances {
+                geometry: accel::GeometryData::Instances(accel::GeometryInstances {
                     buffer: &instances_buffer.0,
                     buffer_offset: 0,
                 }),
@@ -450,6 +496,8 @@ fn main() {
             backing: tlas_buffer,
         };
 
+        device.set_acceleration_structure_name(&mut tlas.accel_struct, "tlas");
+
         {
             let query_count = 1;
             let compacted_size_pool = device
@@ -486,11 +534,12 @@ fn main() {
             )]);
 
             cmd_buffer.pipeline_barrier(
-                PipelineStage::ACCELERATION_STRUCTURE_BUILD
-                    ..PipelineStage::ACCELERATION_STRUCTURE_BUILD,
-                Dependencies::empty(),
-                &[Barrier::AllBuffers(
-                    Access::ACCELERATION_STRUCTURE_WRITE..Access::ACCELERATION_STRUCTURE_READ,
+                pso::PipelineStage::ACCELERATION_STRUCTURE_BUILD
+                    ..pso::PipelineStage::ACCELERATION_STRUCTURE_BUILD,
+                memory::Dependencies::empty(),
+                &[memory::Barrier::AllBuffers(
+                    buffer::Access::ACCELERATION_STRUCTURE_WRITE
+                        ..buffer::Access::ACCELERATION_STRUCTURE_READ,
                 )],
             );
 
@@ -546,6 +595,42 @@ fn main() {
                 .unwrap();
             let tlas_serialized_size = (data.as_ptr() as *const u32).read();
             dbg!(tlas_serialized_size);
+        }
+
+        {
+            // do a dummy descriptor write
+
+            let mut descriptor_pool = device
+                .create_descriptor_pool(
+                    1,
+                    &[pso::DescriptorRangeDesc {
+                        ty: pso::DescriptorType::AccelerationStructure,
+                        count: 1,
+                    }],
+                    pso::DescriptorPoolCreateFlags::empty(),
+                )
+                .unwrap();
+
+            let layout = device
+                .create_descriptor_set_layout(
+                    &[pso::DescriptorSetLayoutBinding {
+                        binding: 0,
+                        ty: pso::DescriptorType::AccelerationStructure,
+                        count: 1,
+                        stage_flags: pso::ShaderStageFlags::ALL,
+                        immutable_samplers: false,
+                    }],
+                    &[],
+                )
+                .unwrap();
+            let descriptor_set = descriptor_pool.allocate_set(&layout).unwrap();
+
+            device.write_descriptor_sets(iter::once(pso::DescriptorSetWrite {
+                set: &descriptor_set,
+                binding: 0,
+                array_offset: 0,
+                descriptors: vec![pso::Descriptor::AccelerationStructure(&tlas.accel_struct)],
+            }));
         }
     }
 }
