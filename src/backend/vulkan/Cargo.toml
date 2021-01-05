@@ -25,7 +25,7 @@ byteorder = "1"
 log = { version = "0.4" }
 lazy_static = "1"
 shared_library = { version = "0.1.9", optional = true }
-ash = "0.31"
+ash = { git = "https://github.com/MaikKlein/ash", rev = "3703e73d304e840f0ee36d1ed369473c8d7c252a" }
 hal = { path = "../../hal", version = "0.6", package = "gfx-hal" }
 smallvec = "1.0"
 raw-window-handle = "0.3"

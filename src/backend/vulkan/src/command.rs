@@ -1178,7 +1178,6 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
     unsafe fn copy_acceleration_structure_to_memory(
         &self,
         src: &n::AccelerationStructure,
-        // TODO(cpu-repr)
         dst_buffer: &n::Buffer,
         dst_offset: buffer::Offset,
         mode: hal::acceleration_structure::CopyMode,
@@ -1188,7 +1187,6 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
 
     unsafe fn copy_memory_to_acceleration_structure(
         &self,
-        // TODO(cpu-repr)
         src_buffer: &n::Buffer,
         src_offset: buffer::Offset,
         dst: &n::AccelerationStructure,

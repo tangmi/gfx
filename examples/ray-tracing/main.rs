@@ -88,31 +88,22 @@ fn main() {
         "You are running the example with the empty backend, no graphical output is to be expected"
     );
 
-    let teapot = wavefront_obj::obj::parse(include_str!("./data/teapot.obj")).unwrap();
-    assert_eq!(teapot.objects.len(), 1);
-    let teapot_vertices = teapot.objects[0]
-        .vertices
-        .iter()
-        .map(|vertex| Vertex {
-            a_Pos: [vertex.x as f32, vertex.y as f32, vertex.z as f32],
-        })
-        .collect::<Vec<_>>();
+    let teapot = obj::Obj::load(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/ray-tracing/data/teapot.obj"
+    ))
+    .unwrap();
+    assert_eq!(teapot.data.objects.len(), 1);
+    let teapot_vertices = &teapot.data.position;
     let teapot_indices = {
-        let object = &teapot.objects[0];
-        assert_eq!(object.geometry.len(), 1);
-        object.geometry[0]
-            .shapes
+        let object = &teapot.data.objects[0];
+        assert_eq!(object.groups.len(), 1);
+        object.groups[0]
+            .polys
             .iter()
-            .flat_map(|shape| match shape.primitive {
-                wavefront_obj::obj::Primitive::Point(_) => {
-                    unimplemented!()
-                }
-                wavefront_obj::obj::Primitive::Line(_, _) => {
-                    unimplemented!()
-                }
-                wavefront_obj::obj::Primitive::Triangle(a, b, c) => std::iter::once(a.0 as u16)
-                    .chain(std::iter::once(b.0 as u16))
-                    .chain(std::iter::once(c.0 as u16)),
+            .flat_map(|poly| {
+                assert_eq!(poly.0.len(), 3, "this isn't a triangle!?!");
+                poly.0.iter().map(|index_tuple| index_tuple.0 as u16)
             })
             .collect::<Vec<_>>()
     };
@@ -198,7 +189,7 @@ fn main() {
         &memory_types,
         buffer::Usage::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY
             | buffer::Usage::SHADER_DEVICE_ADDRESS,
-        &teapot_vertices,
+        teapot_vertices,
     );
 
     let index_buffer = upload_to_buffer::<back::Backend, _>(
@@ -623,14 +614,14 @@ fn main() {
                     &[],
                 )
                 .unwrap();
-            let descriptor_set = descriptor_pool.allocate_set(&layout).unwrap();
+            let mut descriptor_set = descriptor_pool.allocate_set(&layout).unwrap();
 
-            device.write_descriptor_sets(iter::once(pso::DescriptorSetWrite {
-                set: &descriptor_set,
+            device.write_descriptor_set(pso::DescriptorSetWrite {
+                set: &mut descriptor_set,
                 binding: 0,
                 array_offset: 0,
                 descriptors: vec![pso::Descriptor::AccelerationStructure(&tlas.accel_struct)],
-            }));
+            });
         }
     }
 }
@@ -694,7 +685,7 @@ fn upload_to_buffer<B: hal::Backend, T>(
     let buffer_stride = mem::size_of::<T>() as u64;
     let buffer_len = data.len() as u64 * buffer_stride;
 
-    let (buffer, buffer_memory) = create_empty_buffer::<B>(
+    let (buffer, mut buffer_memory) = create_empty_buffer::<B>(
         device,
         non_coherent_alignment,
         memory_types,
@@ -704,13 +695,13 @@ fn upload_to_buffer<B: hal::Backend, T>(
 
     unsafe {
         let mapping = device
-            .map_memory(&buffer_memory, memory::Segment::ALL)
+            .map_memory(&mut buffer_memory, memory::Segment::ALL)
             .unwrap();
         ptr::copy_nonoverlapping(data.as_ptr() as *const u8, mapping, buffer_len as usize);
         device
             .flush_mapped_memory_ranges(iter::once((&buffer_memory, memory::Segment::ALL)))
             .unwrap();
-        device.unmap_memory(&buffer_memory);
+        device.unmap_memory(&mut buffer_memory);
     }
 
     (buffer, buffer_memory)
