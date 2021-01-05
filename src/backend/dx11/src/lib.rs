@@ -410,7 +410,14 @@ fn get_format_properties(
                         props.buffer_features |= format::BufferFeature::STORAGE_TEXEL;
                     }
                     if can_image {
+                        // Since read-only storage is exposed as SRV, we can guarantee read-only storage without checking D3D11_FORMAT_SUPPORT2_UAV_TYPED_LOAD first.
                         props.optimal_tiling |= format::ImageFeature::STORAGE;
+
+                        if support_2.OutFormatSupport2 & d3d11::D3D11_FORMAT_SUPPORT2_UAV_TYPED_LOAD
+                            != 0
+                        {
+                            props.optimal_tiling |= format::ImageFeature::STORAGE_READ_WRITE;
+                        }
                     }
                 }
             }
@@ -971,7 +978,9 @@ impl window::PresentationSurface<Backend> for Surface {
                 // We must also delete the image data.
                 //
                 // This should not panic as all images must be deleted before
-                let mut present_image = Arc::try_unwrap(present.image).expect("Not all acquired images were deleted before the swapchain was reconfigured.");
+                let mut present_image = Arc::try_unwrap(present.image).expect(
+                    "Not all acquired images were deleted before the swapchain was reconfigured.",
+                );
                 present_image.internal.release_resources();
 
                 let result = present.swapchain.ResizeBuffers(
@@ -1122,7 +1131,7 @@ impl queue::CommandQueue<Backend> for CommandQueue {
     unsafe fn submit<'a, T, Ic, S, Iw, Is>(
         &mut self,
         submission: queue::Submission<Ic, Iw, Is>,
-        fence: Option<&Fence>,
+        fence: Option<&mut Fence>,
     ) where
         T: 'a + Borrow<CommandBuffer>,
         Ic: IntoIterator<Item = &'a T>,
@@ -1167,7 +1176,7 @@ impl queue::CommandQueue<Backend> for CommandQueue {
         &mut self,
         surface: &mut Surface,
         _image: SwapchainImage,
-        _wait_semaphore: Option<&Semaphore>,
+        _wait_semaphore: Option<&mut Semaphore>,
     ) -> Result<Option<window::Suboptimal>, window::PresentError> {
         let mut presentation = surface.presentation.as_mut().unwrap();
         let (interval, flags) = match presentation.mode {
@@ -1182,7 +1191,7 @@ impl queue::CommandQueue<Backend> for CommandQueue {
         Ok(None)
     }
 
-    fn wait_idle(&self) -> Result<(), hal::device::OutOfMemory> {
+    fn wait_idle(&mut self) -> Result<(), hal::device::OutOfMemory> {
         // unimplemented!()
         Ok(())
     }
@@ -4159,6 +4168,8 @@ impl DescriptorSet {
 
 #[derive(Debug)]
 pub struct DescriptorPool {
+    //TODO: do we need this in the pool?
+    // if the sets owned their data, we could make this just `Vec<Descriptor>`
     handles: Vec<Descriptor>,
     allocator: RangeAllocator<DescriptorIndex>,
 }
