@@ -254,6 +254,8 @@ bitflags! {
         const SAMPLER_BORDER_COLOR = 0x0010 << 64;
         /// Can create comparison samplers in regular descriptor sets.
         const MUTABLE_COMPARISON_SAMPLER = 0x0020 << 64;
+        /// Can create non-normalized samplers in regular descriptor sets.
+        const MUTABLE_UNNORMALIZED_SAMPLER = 0x0040 << 64;
 
         /// Make the NDC coordinate system pointing Y up, to match D3D and Metal.
         const NDC_Y_UP = 0x0001 << 80;
@@ -293,12 +295,52 @@ bitflags! {
 }
 
 bitflags! {
-    /// Features that the device supports natively, but is able to emulate.
+    /// Features that the device doesn't support natively, but is able to emulate
+    /// at some performance cost.
+    #[derive(Default)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-    pub struct Hints: u32 {
-        /// Support indexed, instanced drawing with base vertex and instance.
+    pub struct PerformanceCaveats: u32 {
+        /// Emulate indexed, instanced drawing with base vertex and instance.
         const BASE_VERTEX_INSTANCE_DRAWING = 0x0001;
     }
+}
+
+bitflags! {
+    /// Dynamic pipeline states.
+    #[derive(Default)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct DynamicStates: u32 {
+        /// Supports `BakedStates::viewport == None`
+        const VIEWPORT = 0x0001;
+        /// Supports `BakedStates::scissor == None`
+        const SCISSOR = 0x0002;
+        /// Supports `Rasterizer::line_width == State::Dynamic(_)`
+        const LINE_WIDTH = 0x0004;
+        /// Supports `BakedStates::blend_color == None`
+        const BLEND_COLOR = 0x0008;
+        /// Supports `Rasterizer::depth_bias == Some(State::Dynamic(_))`
+        const DEPTH_BIAS = 0x0010;
+        /// Supports `BakedStates::depth_bounds == None`
+        const DEPTH_BOUNDS = 0x0020;
+        /// Supports `StencilTest::read_masks == State::Dynamic(_)`
+        const STENCIL_READ_MASK = 0x0100;
+        /// Supports `StencilTest::write_masks == State::Dynamic(_)`
+        const STENCIL_WRITE_MASK = 0x0200;
+        /// Supports `StencilTest::reference_values == State::Dynamic(_)`
+        const STENCIL_REFERENCE = 0x0400;
+    }
+}
+
+/// Capabilities of physical devices that are exposed but
+/// do not need to be explicitly opted into.
+//TODO: should we move `Limits` in here?
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct Capabilities {
+    /// Performance caveats.
+    pub performance_caveats: PerformanceCaveats,
+    /// Dynamic pipeline states.
+    pub dynamic_pipeline_states: DynamicStates,
 }
 
 /// Resource limits of a particular graphics device.
@@ -437,6 +479,10 @@ pub struct Limits {
     pub framebuffer_depth_sample_counts: image::NumSamples,
     /// Number of samples supported for stencil attachments of framebuffers.
     pub framebuffer_stencil_sample_counts: image::NumSamples,
+    /// Timestamp queries are supported on all compute and graphics queues.
+    pub timestamp_compute_and_graphics: bool,
+    /// The amount of nanoseconds that causes a timestamp query value to increment by one.
+    pub timestamp_period: f32,
     /// Maximum number of color attachments that can be used by a subpass in a render pass.
     pub max_color_attachments: usize,
     ///

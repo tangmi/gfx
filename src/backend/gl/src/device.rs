@@ -9,7 +9,7 @@ use crate::{
 use auxil::{spirv_cross_specialize_ast, FastHashMap, ShaderStage};
 use hal::{
     buffer, device as d,
-    format::{Aspects, Format, Swizzle},
+    format::{Format, Swizzle},
     image as i, memory, pass,
     pool::CommandPoolCreateFlags,
     pso, query, queue,
@@ -127,8 +127,17 @@ impl Device {
         let mut name_binding_map = FastHashMap::<String, (n::BindingRegister, u8)>::default();
         let mut sampler_map = [None; MAX_TEXTURE_SLOTS];
 
+        let mut has_vertex_stage = false;
+        let mut has_fragment_stage = false;
+
         for &(stage, point_maybe) in shaders {
             if let Some(point) = point_maybe {
+                match stage {
+                    ShaderStage::Vertex => has_vertex_stage = true,
+                    ShaderStage::Fragment => has_fragment_stage = true,
+                    _ => (),
+                }
+
                 let shader = self.compile_shader(
                     point,
                     stage,
@@ -140,6 +149,29 @@ impl Device {
                     gl.attach_shader(program, shader);
                     gl.delete_shader(shader);
                 }
+            }
+        }
+
+        // Create empty fragment shader if only vertex shader is present
+        if has_vertex_stage && !has_fragment_stage {
+            let sl = &self.share.info.shading_language;
+            let version = (sl.major * 100 + sl.minor * 10) as u16;
+            let shader_type = if sl.is_embedded { "es" } else { "" };
+            let shader_src = format!(
+                "#version {version} {shader_type} \n void main(void) {{}}",
+                version = version,
+                shader_type = shader_type
+            );
+            debug!(
+                "Only vertex shader is present. Creating empty fragment shader:\n{}",
+                shader_src
+            );
+            let shader = self
+                .create_shader_module_raw(&shader_src, ShaderStage::Fragment)
+                .unwrap();
+            unsafe {
+                gl.attach_shader(program, shader);
+                gl.delete_shader(shader);
             }
         }
 
@@ -190,7 +222,7 @@ impl Device {
         Ok((program, sampler_map))
     }
 
-    fn bind_target_compat(gl: &GlContainer, point: u32, attachment: u32, view: &n::ImageView) {
+    fn _bind_target_compat(gl: &GlContainer, point: u32, attachment: u32, view: &n::ImageView) {
         match *view {
             n::ImageView::Renderbuffer { raw: rb, .. } => unsafe {
                 gl.framebuffer_renderbuffer(point, attachment, glow::RENDERBUFFER, Some(rb));
@@ -290,27 +322,29 @@ impl Device {
         let version = self.share.info.shading_language.tuple();
         compile_options.version = if is_embedded {
             match version {
-                (3, 00) => glsl::Version::V3_00Es,
-                (1, 00) => glsl::Version::V1_00Es,
-                other if other > (3, 0) => glsl::Version::V3_00Es,
+                (3, 2) => glsl::Version::V3_20Es,
+                (3, 1) => glsl::Version::V3_10Es,
+                (3, 0) => glsl::Version::V3_00Es,
+                (1, 0) => glsl::Version::V1_00Es,
+                other if other > (3, 2) => glsl::Version::V3_20Es,
                 other => panic!("GLSL version is not recognized: {:?}", other),
             }
         } else {
             match version {
-                (4, 60) => glsl::Version::V4_60,
-                (4, 50) => glsl::Version::V4_50,
-                (4, 40) => glsl::Version::V4_40,
-                (4, 30) => glsl::Version::V4_30,
-                (4, 20) => glsl::Version::V4_20,
-                (4, 10) => glsl::Version::V4_10,
-                (4, 00) => glsl::Version::V4_00,
-                (3, 30) => glsl::Version::V3_30,
-                (1, 50) => glsl::Version::V1_50,
-                (1, 40) => glsl::Version::V1_40,
-                (1, 30) => glsl::Version::V1_30,
-                (1, 20) => glsl::Version::V1_20,
-                (1, 10) => glsl::Version::V1_10,
-                other if other > (4, 60) => glsl::Version::V4_60,
+                (4, 6) => glsl::Version::V4_60,
+                (4, 5) => glsl::Version::V4_50,
+                (4, 4) => glsl::Version::V4_40,
+                (4, 3) => glsl::Version::V4_30,
+                (4, 2) => glsl::Version::V4_20,
+                (4, 1) => glsl::Version::V4_10,
+                (4, 0) => glsl::Version::V4_00,
+                (3, 3) => glsl::Version::V3_30,
+                (1, 5) => glsl::Version::V1_50,
+                (1, 4) => glsl::Version::V1_40,
+                (1, 3) => glsl::Version::V1_30,
+                (1, 2) => glsl::Version::V1_20,
+                (1, 1) => glsl::Version::V1_10,
+                other if other > (4, 6) => glsl::Version::V4_60,
                 other => panic!("GLSL version is not recognized: {:?}", other),
             }
         };
@@ -325,7 +359,7 @@ impl Device {
                 _ => {
                     return Err(d::ShaderError::CompilationFailed(
                         "Unsupported execution model".into(),
-                    ))
+                    ));
                 }
             },
         ));
@@ -967,7 +1001,7 @@ impl d::Device<B> for Device {
                     )
                 }
                 pso::PrimitiveAssemblerDesc::Mesh { .. } => {
-                    return Err(pso::CreationError::UnsupportedPipeline)
+                    return Err(pso::CreationError::UnsupportedPipeline);
                 }
             };
 
@@ -1053,25 +1087,24 @@ impl d::Device<B> for Device {
 
     unsafe fn create_framebuffer<I>(
         &self,
-        pass: &n::RenderPass,
-        attachments: I,
+        _render_pass: &n::RenderPass,
+        _attachments: I,
         _extent: i::Extent,
-    ) -> Result<n::FrameBuffer, d::OutOfMemory>
-    where
-        I: IntoIterator,
-        I::Item: Borrow<n::ImageView>,
-    {
+    ) -> Result<n::Framebuffer, d::OutOfMemory> {
         if !self.share.private_caps.framebuffer {
             return Err(d::OutOfMemory::Host);
         }
 
+        let gl = &self.share.context;
+        let raw = gl.create_framebuffer().unwrap();
+
+        /*
         let attachments: Vec<_> = attachments
             .into_iter()
             .map(|at| at.borrow().clone())
             .collect();
         debug!("create_framebuffer {:?}", attachments);
 
-        let gl = &self.share.context;
         let target = glow::DRAW_FRAMEBUFFER;
 
         let fbos = pass.subpasses.iter().map(|subpass| {
@@ -1132,9 +1165,9 @@ impl d::Device<B> for Device {
             Some(name)
         }).collect();
 
-        gl.bind_framebuffer(target, None);
+        gl.bind_framebuffer(target, None);*/
 
-        Ok(n::FrameBuffer { fbos })
+        Ok(n::Framebuffer { raw })
     }
 
     unsafe fn create_shader_module(
@@ -1948,13 +1981,8 @@ impl d::Device<B> for Device {
         self.share.context.delete_program(pipeline.program);
     }
 
-    unsafe fn destroy_framebuffer(&self, frame_buffer: n::FrameBuffer) {
-        let gl = &self.share.context;
-        for f in frame_buffer.fbos {
-            if let Some(f) = f {
-                gl.delete_framebuffer(f);
-            }
-        }
+    unsafe fn destroy_framebuffer(&self, framebuffer: n::Framebuffer) {
+        self.share.context.delete_framebuffer(framebuffer.raw);
     }
 
     unsafe fn destroy_buffer(&self, _buffer: n::Buffer) {
@@ -2041,7 +2069,7 @@ impl d::Device<B> for Device {
         // TODO
     }
 
-    unsafe fn set_framebuffer_name(&self, _framebuffer: &mut n::FrameBuffer, _name: &str) {
+    unsafe fn set_framebuffer_name(&self, _framebuffer: &mut n::Framebuffer, _name: &str) {
         // TODO
     }
 

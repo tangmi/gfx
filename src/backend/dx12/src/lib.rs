@@ -35,7 +35,8 @@ mod window;
 
 use auxil::FastHashMap;
 use hal::{
-    adapter, format as f, image, memory, pso::PipelineStage, queue as q, Features, Hints, Limits,
+    adapter, format as f, image, memory, pso::PipelineStage, queue as q, Capabilities, Features,
+    Limits,
 };
 use range_alloc::RangeAllocator;
 
@@ -210,10 +211,9 @@ struct Workarounds {
 // most owning fields last.
 pub struct PhysicalDevice {
     features: Features,
-    hints: Hints,
     limits: Limits,
     format_properties: Arc<FormatProperties>,
-    private_caps: Capabilities,
+    private_caps: PrivateCapabilities,
     workarounds: Workarounds,
     heap_properties: &'static [HeapProperties; NUM_HEAP_PROPERTIES],
     memory_properties: adapter::MemoryProperties,
@@ -355,11 +355,10 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 image::Tiling::Linear => format_info.properties.linear_tiling,
             };
             let mut flags = U::empty();
-            // Note: these checks would have been nicer if we had explicit BLIT usage
-            if props.contains(f::ImageFeature::BLIT_SRC) {
+            if props.contains(f::ImageFeature::TRANSFER_SRC) {
                 flags |= U::TRANSFER_SRC;
             }
-            if props.contains(f::ImageFeature::BLIT_DST) {
+            if props.contains(f::ImageFeature::TRANSFER_DST) {
                 flags |= U::TRANSFER_DST;
             }
             if props.contains(f::ImageFeature::SAMPLED) {
@@ -443,8 +442,15 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
         self.features
     }
 
-    fn hints(&self) -> Hints {
-        self.hints
+    fn capabilities(&self) -> Capabilities {
+        use hal::DynamicStates as Ds;
+        Capabilities {
+            performance_caveats: hal::PerformanceCaveats::empty(),
+            dynamic_pipeline_states: Ds::VIEWPORT
+                | Ds::SCISSOR
+                | Ds::BLEND_COLOR
+                | Ds::STENCIL_REFERENCE,
+        }
     }
 
     fn limits(&self) -> Limits {
@@ -543,7 +549,7 @@ enum MemoryArchitecture {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Capabilities {
+pub struct PrivateCapabilities {
     heterogeneous_resource_heaps: bool,
     memory_architecture: MemoryArchitecture,
 }
@@ -593,7 +599,7 @@ impl SamplerStorage {
 
 pub struct Device {
     raw: native::Device,
-    private_caps: Capabilities,
+    private_caps: PrivateCapabilities,
     features: Features,
     format_properties: Arc<FormatProperties>,
     heap_properties: &'static [HeapProperties],
@@ -1170,8 +1176,6 @@ impl hal::Instance<Backend> for Instance {
                     Features::STORAGE_TEXTURE_DESCRIPTOR_INDEXING |
                     Features::UNSIZED_DESCRIPTOR_ARRAY |
                     Features::DRAW_INDIRECT_COUNT,
-                hints:
-                    Hints::BASE_VERTEX_INSTANCE_DRAWING,
                 limits: Limits {
                     //TODO: verify all of these not linked to constants
                     max_bound_descriptor_sets: MAX_DESCRIPTOR_SETS as u16,
@@ -1252,7 +1256,7 @@ impl hal::Instance<Backend> for Instance {
                     .. Limits::default() //TODO
                 },
                 format_properties: Arc::new(FormatProperties::new(device)),
-                private_caps: Capabilities {
+                private_caps: PrivateCapabilities {
                     heterogeneous_resource_heaps,
                     memory_architecture,
                 },
@@ -1411,10 +1415,15 @@ impl FormatProperties {
                         | d3d12::D3D12_FORMAT_SUPPORT1_TEXTURECUBE);
             let can_linear = can_image && !is_compressed;
             if can_image {
-                props.optimal_tiling |= f::ImageFeature::SAMPLED | f::ImageFeature::BLIT_SRC;
+                props.optimal_tiling |= f::ImageFeature::TRANSFER_SRC
+                    | f::ImageFeature::TRANSFER_DST
+                    | f::ImageFeature::SAMPLED;
             }
             if can_linear {
-                props.linear_tiling |= f::ImageFeature::SAMPLED | f::ImageFeature::BLIT_SRC;
+                props.linear_tiling |= f::ImageFeature::TRANSFER_SRC
+                    | f::ImageFeature::TRANSFER_DST
+                    | f::ImageFeature::SAMPLED
+                    | f::ImageFeature::BLIT_SRC;
             }
             if data.Support1 & d3d12::D3D12_FORMAT_SUPPORT1_IA_VERTEX_BUFFER != 0 {
                 props.buffer_features |= f::BufferFeature::VERTEX;

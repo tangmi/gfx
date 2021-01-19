@@ -65,6 +65,7 @@ type ColorSlot = u8;
 const MAX_SAMPLERS: usize = 16;
 //TODO: has to be within glow::MAX_COMBINED_TEXTURE_IMAGE_UNITS
 const MAX_TEXTURE_SLOTS: usize = 16;
+const MAX_COLOR_ATTACHMENTS: usize = 16;
 
 struct GlContainer {
     context: GlContext,
@@ -96,7 +97,7 @@ impl hal::Backend for Backend {
 
     type ShaderModule = native::ShaderModule;
     type RenderPass = native::RenderPass;
-    type Framebuffer = native::FrameBuffer;
+    type Framebuffer = native::Framebuffer;
 
     type Buffer = native::Buffer;
     type BufferView = native::BufferView;
@@ -202,8 +203,8 @@ struct Share {
     info: Info,
     supported_features: hal::Features,
     legacy_features: info::LegacyFeatures,
-    hints: hal::Hints,
     limits: hal::Limits,
+    public_caps: hal::Capabilities,
     private_caps: info::PrivateCaps,
     // Indicates if there is an active logical device.
     open: Cell<bool>,
@@ -353,7 +354,7 @@ impl PhysicalDevice {
     fn new_adapter(context: GlContext) -> adapter::Adapter<Backend> {
         let gl = GlContainer { context };
         // query information
-        let (info, supported_features, legacy_features, hints, limits, private_caps) =
+        let (info, supported_features, legacy_features, limits, public_caps, private_caps) =
             info::query_all(&gl);
         info!("Vendor: {:?}", info.platform_name.vendor);
         info!("Renderer: {:?}", info.platform_name.renderer);
@@ -361,6 +362,7 @@ impl PhysicalDevice {
         info!("Shading Language: {:?}", info.shading_language);
         info!("Supported Features: {:?}", supported_features);
         info!("Legacy Features: {:?}", legacy_features);
+        debug!("Public capabilities: {:#?}", public_caps);
         debug!("Private capabilities: {:#?}", private_caps);
         debug!("Loaded Extensions:");
         for extension in info.extensions.iter() {
@@ -430,8 +432,8 @@ impl PhysicalDevice {
             info,
             supported_features,
             legacy_features,
-            hints,
             limits,
+            public_caps,
             private_caps,
             open: Cell::new(false),
             memory_types,
@@ -583,14 +585,13 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
     }
 
     fn format_properties(&self, _: Option<hal::format::Format>) -> hal::format::Properties {
-        use hal::format::BufferFeature;
-        use hal::format::ImageFeature;
+        use hal::format::{BufferFeature as Bf, ImageFeature as If};
 
         // TODO: These are for show
         hal::format::Properties {
-            linear_tiling: ImageFeature::SAMPLED,
-            optimal_tiling: ImageFeature::SAMPLED,
-            buffer_features: BufferFeature::VERTEX,
+            linear_tiling: If::TRANSFER_SRC | If::TRANSFER_DST | If::empty(),
+            optimal_tiling: If::TRANSFER_SRC | If::TRANSFER_DST | If::SAMPLED,
+            buffer_features: Bf::VERTEX,
         }
     }
 
@@ -641,8 +642,8 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
         self.0.supported_features
     }
 
-    fn hints(&self) -> hal::Hints {
-        self.0.hints
+    fn capabilities(&self) -> hal::Capabilities {
+        self.0.public_caps
     }
 
     fn limits(&self) -> hal::Limits {

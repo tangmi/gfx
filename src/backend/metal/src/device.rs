@@ -390,22 +390,10 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
 
     fn features(&self) -> hal::Features {
         use hal::Features as F;
-        F::empty()
-            | F::FULL_DRAW_INDEX_U32
-            | if self.shared.private_caps.texture_cube_array {
-                F::IMAGE_CUBE_ARRAY
-            } else {
-                F::empty()
-            }
+        let mut features = F::FULL_DRAW_INDEX_U32
             | F::INDEPENDENT_BLENDING
-            | if self.shared.private_caps.dual_source_blending {
-                F::DUAL_SRC_BLENDING
-            } else {
-                F::empty()
-            }
             | F::DRAW_INDIRECT_FIRST_INSTANCE
             | F::DEPTH_CLAMP
-            //| F::DEPTH_BOUNDS
             | F::SAMPLER_ANISOTROPY
             | F::FORMAT_BC
             | F::PRECISE_OCCLUSION_QUERY
@@ -414,39 +402,50 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             | F::FRAGMENT_STORES_AND_ATOMICS
             | F::INSTANCE_RATE
             | F::SEPARATE_STENCIL_REF_VALUES
-            | if self.shared.private_caps.expose_line_mode {
-                F::NON_FILL_POLYGON_MODE
-            } else {
-                F::empty()
-            }
             | F::SHADER_CLIP_DISTANCE
-            | if self.shared.private_caps.msl_version >= metal::MTLLanguageVersion::V2_0 {
-                F::TEXTURE_DESCRIPTOR_ARRAY |
-                    F::SHADER_SAMPLED_IMAGE_ARRAY_DYNAMIC_INDEXING |
-                    F::SAMPLED_TEXTURE_DESCRIPTOR_INDEXING |
-                    F::STORAGE_TEXTURE_DESCRIPTOR_INDEXING
-            } else {
-                F::empty()
-            }
-            //| F::SAMPLER_MIRROR_CLAMP_EDGE
-            | if self.shared.private_caps.sampler_clamp_to_border {
-                F::SAMPLER_BORDER_COLOR
-            } else {
-                F::empty()
-            }
-            | if self.shared.private_caps.mutable_comparison_samplers {
-                F::MUTABLE_COMPARISON_SAMPLER
-            } else {
-                F::empty()
-            }
-            | F::NDC_Y_UP
+            | F::MUTABLE_UNNORMALIZED_SAMPLER
+            | F::NDC_Y_UP;
+
+        features.set(
+            F::IMAGE_CUBE_ARRAY,
+            self.shared.private_caps.texture_cube_array,
+        );
+        features.set(
+            F::DUAL_SRC_BLENDING,
+            self.shared.private_caps.dual_source_blending,
+        );
+        features.set(
+            F::NON_FILL_POLYGON_MODE,
+            self.shared.private_caps.expose_line_mode,
+        );
+        if self.shared.private_caps.msl_version >= metal::MTLLanguageVersion::V2_0 {
+            features |= F::TEXTURE_DESCRIPTOR_ARRAY
+                | F::SHADER_SAMPLED_IMAGE_ARRAY_DYNAMIC_INDEXING
+                | F::SAMPLED_TEXTURE_DESCRIPTOR_INDEXING
+                | F::STORAGE_TEXTURE_DESCRIPTOR_INDEXING;
+        }
+        features.set(
+            F::SAMPLER_BORDER_COLOR,
+            self.shared.private_caps.sampler_clamp_to_border,
+        );
+        features.set(
+            F::MUTABLE_COMPARISON_SAMPLER,
+            self.shared.private_caps.mutable_comparison_samplers,
+        );
+
+        //TODO: F::DEPTH_BOUNDS
+        //TODO: F::SAMPLER_MIRROR_CLAMP_EDGE
+        features
     }
 
-    fn hints(&self) -> hal::Hints {
-        if self.shared.private_caps.base_vertex_instance_drawing {
-            hal::Hints::BASE_VERTEX_INSTANCE_DRAWING
-        } else {
-            hal::Hints::empty()
+    fn capabilities(&self) -> hal::Capabilities {
+        let mut caveats = hal::PerformanceCaveats::empty();
+        if !self.shared.private_caps.base_vertex_instance_drawing {
+            caveats |= hal::PerformanceCaveats::BASE_VERTEX_INSTANCE_DRAWING;
+        }
+        hal::Capabilities {
+            performance_caveats: caveats,
+            dynamic_pipeline_states: hal::DynamicStates::all(),
         }
     }
 
@@ -1800,20 +1799,10 @@ impl hal::device::Device<Backend> for Device {
     unsafe fn create_framebuffer<I>(
         &self,
         _render_pass: &n::RenderPass,
-        attachments: I,
+        _attachments: I,
         extent: image::Extent,
-    ) -> Result<n::Framebuffer, d::OutOfMemory>
-    where
-        I: IntoIterator,
-        I::Item: Borrow<n::ImageView>,
-    {
-        Ok(n::Framebuffer {
-            extent,
-            attachments: attachments
-                .into_iter()
-                .map(|at| at.borrow().texture.clone())
-                .collect(),
-        })
+    ) -> Result<n::Framebuffer, d::OutOfMemory> {
+        Ok(n::Framebuffer { extent })
     }
 
     unsafe fn create_shader_module(
@@ -2142,7 +2131,7 @@ impl hal::device::Device<Backend> for Device {
                 data: msl::SamplerData,
                 binding: pso::DescriptorBinding,
                 array_index: pso::DescriptorArrayIndex,
-            };
+            }
             let mut immutable_sampler_iter = immutable_samplers.into_iter();
             let mut tmp_samplers = Vec::new();
             let mut desc_layouts = Vec::new();
@@ -2377,7 +2366,7 @@ impl hal::device::Device<Backend> for Device {
 
     unsafe fn destroy_compute_pipeline(&self, _pipeline: n::ComputePipeline) {}
 
-    unsafe fn destroy_framebuffer(&self, _buffer: n::Framebuffer) {}
+    unsafe fn destroy_framebuffer(&self, _framebuffer: n::Framebuffer) {}
 
     unsafe fn destroy_semaphore(&self, _semaphore: n::Semaphore) {}
 

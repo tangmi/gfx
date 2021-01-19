@@ -1,6 +1,6 @@
-use crate::{Error, GlContainer};
+use crate::{Error, GlContainer, MAX_COLOR_ATTACHMENTS};
 use glow::HasContext;
-use hal::{Features, Hints, Limits};
+use hal::{Capabilities, DynamicStates, Features, Limits, PerformanceCaveats};
 use std::{collections::HashSet, fmt, str};
 
 /// A version number for a specific component of an OpenGL implementation
@@ -204,6 +204,8 @@ pub struct PrivateCaps {
     pub depth_range_f64_precision: bool,
     /// Whether draw buffers are supported
     pub draw_buffers: bool,
+    /// Whether separate color masks per output buffer are supported.
+    pub per_slot_color_mask: bool,
 }
 
 /// OpenGL implementation information
@@ -343,7 +345,14 @@ impl Info {
 /// capabilities.
 pub(crate) fn query_all(
     gl: &GlContainer,
-) -> (Info, Features, LegacyFeatures, Hints, Limits, PrivateCaps) {
+) -> (
+    Info,
+    Features,
+    LegacyFeatures,
+    Limits,
+    Capabilities,
+    PrivateCaps,
+) {
     use self::Requirement::*;
     let info = Info::get(gl);
     let max_texture_size = get_usize(gl, glow::MAX_TEXTURE_SIZE).unwrap_or(64) as u32;
@@ -376,7 +385,9 @@ pub(crate) fn query_all(
         min_storage_buffer_offset_alignment,
         framebuffer_color_sample_counts: max_samples_mask,
         non_coherent_atom_size: 1,
-        max_color_attachments: get_usize(gl, glow::MAX_COLOR_ATTACHMENTS).unwrap_or(1),
+        max_color_attachments: get_usize(gl, glow::MAX_COLOR_ATTACHMENTS)
+            .unwrap_or(1)
+            .min(MAX_COLOR_ATTACHMENTS),
         ..Limits::default()
     };
 
@@ -388,7 +399,10 @@ pub(crate) fn query_all(
         limits.max_viewports = get_usize(gl, glow::MAX_VIEWPORTS).unwrap_or(0);
     }
 
-    if info.is_supported(&[Core(4, 3), Ext("GL_ARB_compute_shader")]) {
+    //TODO: technically compute is exposed in Es(3, 1), but GLES requires 3.2
+    // for any storage buffers. We need to investigate if this requirement
+    // can be lowered.
+    if info.is_supported(&[Core(4, 3), Es(3, 2), Ext("GL_ARB_compute_shader")]) {
         for (i, (count, size)) in limits
             .max_compute_work_group_count
             .iter_mut()
@@ -489,11 +503,15 @@ pub(crate) fn query_all(
         legacy |= LegacyFeatures::INSTANCED_ATTRIBUTE_BINDING;
     }
 
-    let mut hints = Hints::empty();
-    if info.is_supported(&[Core(4, 2)]) {
-        // TODO: extension
-        hints |= Hints::BASE_VERTEX_INSTANCE_DRAWING;
+    let mut performance_caveats = PerformanceCaveats::empty();
+    //TODO: extension
+    if !info.is_supported(&[Core(4, 2)]) {
+        performance_caveats |= PerformanceCaveats::BASE_VERTEX_INSTANCE_DRAWING;
     }
+    let capabilities = Capabilities {
+        performance_caveats,
+        dynamic_pipeline_states: DynamicStates::all(),
+    };
 
     let buffer_storage = info.is_supported(&[
         Core(4, 4),
@@ -519,9 +537,10 @@ pub(crate) fn query_all(
         emulate_map,
         depth_range_f64_precision: !info.version.is_embedded, // TODO
         draw_buffers: info.is_supported(&[Core(2, 0), Es(3, 0)]),
+        per_slot_color_mask: info.is_supported(&[Core(3, 0)]),
     };
 
-    (info, features, legacy, hints, limits, private)
+    (info, features, legacy, limits, capabilities, private)
 }
 
 #[cfg(test)]

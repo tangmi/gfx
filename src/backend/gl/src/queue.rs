@@ -1,8 +1,9 @@
 use crate::{
     command as com, device, info::LegacyFeatures, native, state, Backend, Device, GlContext, Share,
-    Starc, Surface,
+    Starc, Surface, MAX_COLOR_ATTACHMENTS,
 };
 
+use arrayvec::ArrayVec;
 use glow::HasContext;
 use smallvec::SmallVec;
 
@@ -27,8 +28,6 @@ struct State {
     num_viewports: usize,
     // Currently set scissor rects.
     num_scissors: usize,
-    // Currently bound fbo
-    fbo: Option<native::RawFrameBuffer>,
 }
 
 impl State {
@@ -40,7 +39,6 @@ impl State {
             index_buffer: None,
             num_viewports: 0,
             num_scissors: 0,
-            fbo: None,
         }
     }
 
@@ -299,7 +297,7 @@ impl CommandQueue {
             } => {
                 let gl = &self.share.context;
                 let legacy = &self.share.legacy_features;
-                let hints = &self.share.hints;
+                let caveats = &self.share.public_caps.performance_caveats;
 
                 if instances == &(0u32..1) {
                     if base_vertex == 0 {
@@ -350,7 +348,12 @@ impl CommandQueue {
                         }
                     } else if instances.start == 0 {
                         error!("Base vertex with instanced indexed drawing is not supported");
-                    } else if hints.contains(hal::Hints::BASE_VERTEX_INSTANCE_DRAWING) {
+                    } else if caveats
+                        .contains(hal::PerformanceCaveats::BASE_VERTEX_INSTANCE_DRAWING)
+                    {
+                        //TODO: this is supposed to be a workaround, not an error
+                        error!("Instance bases with instanced indexed drawing is not supported");
+                    } else {
                         unsafe {
                             gl.draw_elements_instanced_base_vertex_base_instance(
                                 primitive,
@@ -362,8 +365,6 @@ impl CommandQueue {
                                 instances.start as _,
                             );
                         }
-                    } else {
-                        error!("Instance bases with instanced indexed drawing is not supported");
                     }
                 } else {
                     error!("Instanced indexed drawing is not supported");
@@ -481,28 +482,35 @@ impl CommandQueue {
                 };
             },
             com::Command::ClearTexture(_color) => unimplemented!(),
-            com::Command::DrawBuffers(draw_buffers) => unsafe {
-                if self.share.private_caps.draw_buffers {
-                    let draw_buffers = Self::get::<u32>(data_buf, draw_buffers);
-                    self.share.context.draw_buffers(draw_buffers);
-                } else {
-                    warn!("Draw buffers are not supported");
+            com::Command::BindFramebuffer {
+                target,
+                framebuffer,
+                ref colors,
+                ref depth_stencil,
+            } => {
+                let gl = &self.share.context;
+                unsafe { gl.bind_framebuffer(target, Some(framebuffer)) };
+                for (i, view) in colors.iter().enumerate() {
+                    self.bind_target(target, glow::COLOR_ATTACHMENT0 + i as u32, view);
                 }
-            },
-            com::Command::BindFrameBuffer(point, frame_buffer) => {
-                if self.share.private_caps.framebuffer {
-                    let gl = &self.share.context;
-                    unsafe { gl.bind_framebuffer(point, frame_buffer) };
-                    self.state.fbo = frame_buffer;
-                } else if frame_buffer.is_some() {
-                    error!("Tried to bind FBO without FBO support!");
+                if let Some(ref view) = *depth_stencil {
+                    let aspects = view.aspects();
+                    let attachment = if aspects == hal::format::Aspects::DEPTH {
+                        glow::DEPTH_ATTACHMENT
+                    } else if aspects == hal::format::Aspects::STENCIL {
+                        glow::STENCIL_ATTACHMENT
+                    } else {
+                        glow::DEPTH_STENCIL_ATTACHMENT
+                    };
+                    self.bind_target(target, attachment, view);
                 }
             }
-            com::Command::BindTargetView(point, attachment, ref view) => {
-                self.bind_target(point, attachment, view)
-            }
-            com::Command::SetDrawColorBuffers(num) => {
-                state::bind_draw_color_buffers(&self.share.context, num);
+            com::Command::SetDrawColorBuffers(ref indices) => {
+                let gl_indices = indices
+                    .iter()
+                    .map(|&i| glow::COLOR_ATTACHMENT0 + i as u32)
+                    .collect::<ArrayVec<[_; MAX_COLOR_ATTACHMENTS]>>();
+                unsafe { self.share.context.draw_buffers(&gl_indices) };
             }
             com::Command::SetPatchSize(num) => unsafe {
                 self.share
@@ -970,7 +978,7 @@ impl CommandQueue {
             }
             com::Command::SetColorMask(slot, mask) => unsafe {
                 use hal::pso::ColorMask as Cm;
-                if let Some(slot) = slot {
+                if let (true, Some(slot)) = (self.share.private_caps.per_slot_color_mask, slot) {
                     self.share.context.color_mask_draw_buffer(
                         slot,
                         mask.contains(Cm::RED) as _,
@@ -979,6 +987,11 @@ impl CommandQueue {
                         mask.contains(Cm::ALPHA) as _,
                     );
                 } else {
+                    if slot.is_some() {
+                        // TODO: the generator of these commands should coalesce identical masks to prevent this warning
+                        //       as much as is possible.
+                        warn!("GLES and WebGL do not support per-target color masks. Falling back on global mask.");
+                    }
                     self.share.context.color_mask(
                         mask.contains(Cm::RED) as _,
                         mask.contains(Cm::GREEN) as _,

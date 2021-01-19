@@ -68,7 +68,6 @@ use cocoa_foundation::foundation::NSInteger;
 #[cfg(feature = "dispatch")]
 use dispatch;
 use foreign_types::ForeignTypeRef;
-use lazy_static::lazy_static;
 use metal::MTLFeatureSet;
 use metal::MTLLanguageVersion;
 use metal::{CGFloat, CGSize, MetalLayer, MetalLayerRef};
@@ -93,7 +92,7 @@ mod window;
 
 pub use crate::command::CommandPool;
 pub use crate::device::{Device, LanguageVersion, PhysicalDevice};
-pub use crate::window::{AcquireMode, Surface};
+pub use crate::window::Surface;
 
 pub type GraphicsCommandPool = CommandPool;
 
@@ -302,18 +301,6 @@ impl hal::Instance<Backend> for Instance {
     }
 }
 
-lazy_static! {
-    static ref GFX_MANAGED_METAL_LAYER_DELEGATE_CLASS: &'static Class = unsafe {
-        let mut decl = ClassDecl::new("GfxManagedMetalLayerDelegate", class!(NSObject)).unwrap();
-        decl.add_method(
-            sel!(layer:shouldInheritContentsScale:fromWindow:),
-            layer_should_inherit_contents_scale_from_window
-                as extern "C" fn(&Object, Sel, *mut Object, CGFloat, *mut Object) -> BOOL,
-        );
-        decl.register()
-    };
-}
-
 extern "C" fn layer_should_inherit_contents_scale_from_window(
     _: &Object,
     _: Sel,
@@ -325,29 +312,27 @@ extern "C" fn layer_should_inherit_contents_scale_from_window(
 }
 
 #[derive(Debug)]
-struct GfxManagedMetalLayerDelegate(*mut Object);
+struct GfxManagedMetalLayerDelegate(&'static Class);
 
 impl GfxManagedMetalLayerDelegate {
     pub fn new() -> Self {
-        unsafe {
-            let mut delegate: *mut Object =
-                msg_send![*GFX_MANAGED_METAL_LAYER_DELEGATE_CLASS, alloc];
-            delegate = msg_send![delegate, init];
-            Self(delegate)
-        }
+        GfxManagedMetalLayerDelegate(match Class::get("GfxManagedMetalLayerDelegate") {
+            Some(class) => class,
+            None => {
+                type Fun = extern "C" fn(&Object, Sel, *mut Object, CGFloat, *mut Object) -> BOOL;
+                let mut decl =
+                    ClassDecl::new("GfxManagedMetalLayerDelegate", class!(NSObject)).unwrap();
+                unsafe {
+                    decl.add_method(
+                        sel!(layer:shouldInheritContentsScale:fromWindow:),
+                        layer_should_inherit_contents_scale_from_window as Fun,
+                    );
+                }
+                decl.register()
+            }
+        })
     }
 }
-
-impl Drop for GfxManagedMetalLayerDelegate {
-    fn drop(&mut self) {
-        unsafe {
-            let () = msg_send![self.0, release];
-        }
-    }
-}
-
-unsafe impl Send for GfxManagedMetalLayerDelegate {}
-unsafe impl Sync for GfxManagedMetalLayerDelegate {}
 
 impl Instance {
     #[cfg(target_os = "ios")]

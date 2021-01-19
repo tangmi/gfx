@@ -384,12 +384,11 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
         extent: image::Extent,
     ) -> Result<B::Framebuffer, OutOfMemory>
     where
-        I: IntoIterator,
-        I::Item: Borrow<B::ImageView>;
+        I: IntoIterator<Item = image::FramebufferAttachment>;
 
     /// Destroy a framebuffer.
     ///
-    /// The framebuffer shouldn't be destroy before any submitted command buffer,
+    /// The framebuffer shouldn't be destroyed before any submitted command buffer,
     /// which references the framebuffer, has finished execution.
     unsafe fn destroy_framebuffer(&self, buf: B::Framebuffer);
 
@@ -453,6 +452,8 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
 
     /// Destroy a buffer view object
     unsafe fn destroy_buffer_view(&self, view: B::BufferView);
+
+    //TODO: add a list of supported formats for casting the views
 
     /// Create a new image object
     unsafe fn create_image(

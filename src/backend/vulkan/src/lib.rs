@@ -1,9 +1,26 @@
+/*!
+# Vulkan backend internals.
+
+## Stack memory
+
+Most of the code just passes the data through. The only problem
+that affects all the pieces is related to memory allocation:
+Vulkan expects slices, but the API gives us `ExactSizeIterator`.
+So we end up using a lot of `inplace_it` to get things collected on stack.
+
+## Framebuffers
+
+One part that has actual logic is related to framebuffers. HAL is modelled
+after image-less framebuffers. If the the Vulkan implementation supports it,
+we map it 1:1, and everything is great. If it doesn't expose
+`KHR_imageless_framebuffer`, however, than we have to keep all the created
+framebuffers internally in an internally-synchronized map, per `B::Framebuffer`.
+!*/
+
 #![allow(non_snake_case)]
 
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate lazy_static;
 
 #[cfg(target_os = "macos")]
 #[macro_use]
@@ -18,7 +35,7 @@ use ash::{
         nv::MeshShader,
     },
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
-    vk, Entry, LoadingError,
+    vk,
 };
 
 use hal::{
@@ -28,7 +45,7 @@ use hal::{
     pso::{PatchSize, PipelineStage},
     queue,
     window::{OutOfDate, PresentError, Suboptimal, SurfaceLost},
-    Features, Hints, Limits,
+    Capabilities, DynamicStates, Features, Limits,
 };
 use vk::PhysicalDeviceProperties2;
 
@@ -37,6 +54,7 @@ use std::{
     ffi::{CStr, CString},
     fmt, mem, slice,
     sync::Arc,
+    thread,
 };
 
 #[cfg(feature = "use-rtld-next")]
@@ -52,24 +70,8 @@ mod native;
 mod pool;
 mod window;
 
-#[cfg(not(feature = "use-rtld-next"))]
-lazy_static! {
-    // Entry function pointers
-    pub static ref VK_ENTRY: Result<Entry, LoadingError> = Entry::new();
-}
-
-#[cfg(feature = "use-rtld-next")]
-lazy_static! {
-    // Entry function pointers
-    pub static ref VK_ENTRY: Result<EntryCustom<()>, LoadingError>
-        = Ok(EntryCustom::new_custom(
-            (),
-            |_, name| unsafe {
-                DynamicLibrary::symbol_special(SpecialHandles::Next, &*name.to_string_lossy())
-                    .unwrap_or(std::ptr::null_mut())
-            }
-        ));
-}
+// Sets up the maximum count we expect in most cases, but maybe not all of them.
+const ROUGH_MAX_ATTACHMENT_COUNT: usize = 5;
 
 pub struct RawInstance {
     inner: ash::Instance,
@@ -104,6 +106,12 @@ pub struct Instance {
 
     /// Supported extensions of this instance.
     pub extensions: Vec<&'static CStr>,
+
+    #[cfg(not(feature = "use-rtld-next"))]
+    pub entry: Entry,
+
+    #[cfg(feature = "use-rtld-next")]
+    pub entry: EntryCustom<()>,
 }
 
 impl fmt::Debug for Instance {
@@ -160,7 +168,7 @@ unsafe fn display_debug_utils_object_name_info_ext(
         return None;
     }
 
-    //TODO: use color field of vk::DebugUtilsLabelsExt in a meaningful way?
+    //TODO: use color field of vk::DebugUtilsLabelExt in a meaningful way?
     Some(
         slice::from_raw_parts::<vk::DebugUtilsObjectNameInfoEXT>(info_structs, count)
             .iter()
@@ -195,6 +203,9 @@ unsafe extern "system" fn debug_utils_messenger_callback(
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
     _user_data: *mut std::os::raw::c_void,
 ) -> vk::Bool32 {
+    if thread::panicking() {
+        return vk::FALSE;
+    }
     let callback_data = *p_callback_data;
 
     let message_severity = match message_severity {
@@ -278,6 +289,10 @@ unsafe extern "system" fn debug_report_callback(
     description: *const std::os::raw::c_char,
     _user_data: *mut std::os::raw::c_void,
 ) -> vk::Bool32 {
+    if thread::panicking() {
+        return vk::FALSE;
+    }
+
     let level = match type_ {
         vk::DebugReportFlagsEXT::ERROR => log::Level::Error,
         vk::DebugReportFlagsEXT::WARNING => log::Level::Warn,
@@ -294,11 +309,20 @@ unsafe extern "system" fn debug_report_callback(
 
 impl hal::Instance<Backend> for Instance {
     fn create(name: &str, version: u32) -> Result<Self, hal::UnsupportedBackend> {
-        // TODO: return errors instead of panic
-        let entry = VK_ENTRY.as_ref().map_err(|e| {
-            info!("Missing Vulkan entry points: {:?}", e);
-            hal::UnsupportedBackend
-        })?;
+        #[cfg(not(feature = "use-rtld-next"))]
+        let entry = match Entry::new() {
+            Ok(entry) => entry,
+            Err(err) => {
+                info!("Missing Vulkan entry points: {:?}", err);
+                return Err(hal::UnsupportedBackend);
+            }
+        };
+
+        #[cfg(feature = "use-rtld-next")]
+        let entry = EntryCustom::new_custom((), |_, name| unsafe {
+            DynamicLibrary::symbol_special(SpecialHandles::Next, &*name.to_string_lossy())
+                .unwrap_or(std::ptr::null_mut())
+        });
 
         let app_name = CString::new(name).unwrap();
         let app_info = vk::ApplicationInfo::builder()
@@ -433,7 +457,7 @@ impl hal::Instance<Backend> for Instance {
             if instance_extensions.iter().any(|props| unsafe {
                 CStr::from_ptr(props.extension_name.as_ptr()) == DebugUtils::name()
             }) {
-                let ext = DebugUtils::new(entry, &instance);
+                let ext = DebugUtils::new(&entry, &instance);
                 let info = vk::DebugUtilsMessengerCreateInfoEXT::builder()
                     .flags(vk::DebugUtilsMessengerCreateFlagsEXT::empty())
                     .message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::all())
@@ -446,7 +470,7 @@ impl hal::Instance<Backend> for Instance {
                     CStr::from_ptr(props.extension_name.as_ptr()) == DebugReport::name()
                 })
             {
-                let ext = DebugReport::new(entry, &instance);
+                let ext = DebugReport::new(&entry, &instance);
                 let info = vk::DebugReportCallbackCreateInfoEXT::builder()
                     .flags(vk::DebugReportFlagsEXT::all())
                     .pfn_callback(Some(debug_report_callback));
@@ -464,6 +488,7 @@ impl hal::Instance<Backend> for Instance {
                 get_physical_device_properties,
             }),
             extensions,
+            entry,
         })
     }
 
@@ -655,6 +680,7 @@ pub struct DeviceCreationFeatures {
     core: vk::PhysicalDeviceFeatures,
     descriptor_indexing: Option<vk::PhysicalDeviceDescriptorIndexingFeaturesEXT>,
     mesh_shaders: Option<vk::PhysicalDeviceMeshShaderFeaturesNV>,
+    imageless_framebuffers: Option<vk::PhysicalDeviceImagelessFramebufferFeaturesKHR>,
     buffer_device_address: Option<vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR>,
     acceleration_structure: Option<vk::PhysicalDeviceAccelerationStructureFeaturesKHR>,
     ray_tracing_pipeline: Option<vk::PhysicalDeviceRayTracingPipelineFeaturesKHR>,
@@ -681,12 +707,18 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             return Err(DeviceCreationError::MissingFeature);
         }
 
-        let maintenance_level = if self.supports_extension(vk::KhrMaintenance1Fn::name()) {
+        let imageless_framebuffers = self.supports_extension(vk::KhrImagelessFramebufferFn::name());
+        let minmax_samplers = self.supports_extension(vk::ExtSamplerFilterMinmaxFn::name());
+        let maintenance_level = if imageless_framebuffers {
+            2
+        } else if self.supports_extension(vk::KhrMaintenance1Fn::name()) {
             1
         } else {
             0
         };
-        let mut enabled_features = conv::map_device_features(requested_features);
+
+        let mut enabled_features =
+            conv::map_device_features(requested_features, imageless_framebuffers);
         let enabled_extensions = {
             let mut enabled_extensions: Vec<&'static CStr> = Vec::new();
             enabled_extensions.push(extensions::khr::Swapchain::name());
@@ -700,7 +732,19 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 1 => {
                     enabled_extensions.push(vk::KhrMaintenance1Fn::name());
                 }
+                2 => {
+                    enabled_extensions.push(vk::KhrMaintenance1Fn::name());
+                    enabled_extensions.push(vk::KhrMaintenance2Fn::name());
+                }
                 _ => unreachable!(),
+            }
+
+            if imageless_framebuffers {
+                enabled_extensions.push(vk::KhrImageFormatListFn::name());
+                enabled_extensions.push(vk::KhrImagelessFramebufferFn::name());
+            }
+            if minmax_samplers {
+                enabled_extensions.push(vk::ExtSamplerFilterMinmaxFn::name());
             }
 
             if requested_features.intersects(
@@ -769,23 +813,19 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 })
                 .collect::<Vec<_>>();
 
-            let info = vk::DeviceCreateInfo::builder()
+            let mut info = vk::DeviceCreateInfo::builder()
                 .queue_create_infos(&family_infos)
                 .enabled_extension_names(&str_pointers)
                 .enabled_features(&enabled_features.core);
-
-            let info =
-                if let Some(ref mut descriptor_indexing) = enabled_features.descriptor_indexing {
-                    info.push_next(descriptor_indexing)
-                } else {
-                    info
-                };
-
-            let info = if let Some(ref mut mesh_shaders) = enabled_features.mesh_shaders {
-                info.push_next(mesh_shaders)
-            } else {
-                info
-            };
+            if let Some(ref mut feature) = enabled_features.descriptor_indexing {
+                info = info.push_next(feature);
+            }
+            if let Some(ref mut feature) = enabled_features.mesh_shaders {
+                info = info.push_next(feature);
+            }
+            if let Some(ref mut feature) = enabled_features.imageless_framebuffers {
+                info = info.push_next(feature);
+            }
 
             let info = if let Some(ref mut buffer_device_address) =
                 enabled_features.buffer_device_address
@@ -881,6 +921,7 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                     acceleration_structure: acceleration_structure_fn,
                 },
                 maintenance_level,
+                imageless_framebuffers,
             }),
             vendor_id: self.properties.vendor_id,
             valid_ash_memory_types,
@@ -917,10 +958,17 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 format.map_or(vk::Format::UNDEFINED, conv::map_format),
             )
         };
+        let supports_transfer_bits = self.supports_extension(vk::KhrMaintenance1Fn::name());
 
         format::Properties {
-            linear_tiling: conv::map_image_features(properties.linear_tiling_features),
-            optimal_tiling: conv::map_image_features(properties.optimal_tiling_features),
+            linear_tiling: conv::map_image_features(
+                properties.linear_tiling_features,
+                supports_transfer_bits,
+            ),
+            optimal_tiling: conv::map_image_features(
+                properties.optimal_tiling_features,
+                supports_transfer_bits,
+            ),
             buffer_features: conv::map_buffer_features(properties.buffer_features),
         }
     }
@@ -981,7 +1029,7 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             .iter()
             .map(|mem| adapter::MemoryHeap {
                 size: mem.size,
-                flags: conv::map_memory_heap_flags(mem.flags),
+                flags: conv::map_vk_memory_heap_flags(mem.flags),
             })
             .collect();
         let memory_types = mem_properties.memory_types[..mem_properties.memory_type_count as usize]
@@ -989,7 +1037,7 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             .filter_map(|mem| {
                 if self.known_memory_flags.contains(mem.property_flags) {
                     Some(adapter::MemoryType {
-                        properties: conv::map_memory_properties(mem.property_flags),
+                        properties: conv::map_vk_memory_properties(mem.property_flags),
                         heap_index: mem.heap_index as usize,
                     })
                 } else {
@@ -1081,6 +1129,7 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             | Features::SAMPLER_MIP_LOD_BIAS
             | Features::SAMPLER_BORDER_COLOR
             | Features::MUTABLE_COMPARISON_SAMPLER
+            | Features::MUTABLE_UNNORMALIZED_SAMPLER
             | Features::TEXTURE_DESCRIPTOR_ARRAY;
 
         if self.supports_extension(vk::AmdNegativeViewportHeightFn::name())
@@ -1325,8 +1374,11 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
         bits
     }
 
-    fn hints(&self) -> Hints {
-        Hints::BASE_VERTEX_INSTANCE_DRAWING
+    fn capabilities(&self) -> Capabilities {
+        Capabilities {
+            performance_caveats: Default::default(),
+            dynamic_pipeline_states: DynamicStates::all(),
+        }
     }
 
     fn limits(&self) -> Limits {
@@ -1374,6 +1426,8 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             framebuffer_depth_sample_counts: limits.framebuffer_depth_sample_counts.as_raw() as _,
             framebuffer_stencil_sample_counts: limits.framebuffer_stencil_sample_counts.as_raw()
                 as _,
+            timestamp_compute_and_graphics: limits.timestamp_compute_and_graphics != 0,
+            timestamp_period: limits.timestamp_period,
             max_color_attachments: limits.max_color_attachments as _,
             buffer_image_granularity: limits.buffer_image_granularity,
             non_coherent_atom_size: limits.non_coherent_atom_size as _,
@@ -1573,6 +1627,7 @@ pub struct RawDevice {
     instance: Arc<RawInstance>,
     extension_fns: DeviceExtensionFunctions,
     maintenance_level: u8,
+    imageless_framebuffers: bool,
 }
 
 impl fmt::Debug for RawDevice {
@@ -1597,6 +1652,47 @@ impl RawDevice {
         let flip_y = self.features.contains(hal::Features::NDC_Y_UP);
         let shift_y = flip_y && self.maintenance_level != 0;
         conv::map_viewport(rect, flip_y, shift_y)
+    }
+
+    unsafe fn set_object_name(
+        &self,
+        object_type: vk::ObjectType,
+        object: impl vk::Handle,
+        name: &str,
+    ) {
+        let instance = &self.instance;
+        if let Some(DebugMessenger::Utils(ref debug_utils_ext, _)) = instance.debug_messenger {
+            // Keep variables outside the if-else block to ensure they do not
+            // go out of scope while we hold a pointer to them
+            let mut buffer: [u8; 64] = [0u8; 64];
+            let buffer_vec: Vec<u8>;
+
+            // Append a null terminator to the string
+            let name_cstr = if name.len() < 64 {
+                // Common case, string is very small. Allocate a copy on the stack.
+                std::ptr::copy_nonoverlapping(name.as_ptr(), buffer.as_mut_ptr(), name.len());
+                // Add null terminator
+                buffer[name.len()] = 0;
+                CStr::from_bytes_with_nul(&buffer[..name.len() + 1]).unwrap()
+            } else {
+                // Less common case, the string is large.
+                // This requires a heap allocation.
+                buffer_vec = name
+                    .as_bytes()
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(0))
+                    .collect::<Vec<u8>>();
+                CStr::from_bytes_with_nul(&buffer_vec).unwrap()
+            };
+            let _result = debug_utils_ext.debug_utils_set_object_name(
+                self.raw.handle(),
+                &vk::DebugUtilsObjectNameInfoEXT::builder()
+                    .object_type(object_type)
+                    .object_handle(object.as_raw())
+                    .object_name(name_cstr),
+            );
+        }
     }
 }
 

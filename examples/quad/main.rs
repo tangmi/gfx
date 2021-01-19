@@ -122,15 +122,15 @@ fn main() {
             .expect("Failed to create a surface!")
     };
 
-    let mut adapters = instance.enumerate_adapters();
+    let adapter = {
+        let mut adapters = instance.enumerate_adapters();
+        for adapter in &adapters {
+            println!("{:?}", adapter.info);
+        }
+        adapters.remove(0)
+    };
 
-    for adapter in &adapters {
-        println!("{:?}", adapter.info);
-    }
-
-    let adapter = adapters.remove(0);
-
-    let mut renderer = Renderer::new(Some(instance), surface, adapter);
+    let mut renderer = Renderer::new(instance, surface, adapter);
 
     renderer.render();
 
@@ -171,19 +171,16 @@ fn main() {
 }
 
 struct Renderer<B: hal::Backend> {
-    instance: Option<B::Instance>,
-    device: B::Device,
-    queue_group: QueueGroup<B>,
     desc_pool: ManuallyDrop<B::DescriptorPool>,
     surface: ManuallyDrop<B::Surface>,
-    adapter: hal::adapter::Adapter<B>,
     format: hal::format::Format,
     dimensions: window::Extent2D,
     viewport: pso::Viewport,
     render_pass: ManuallyDrop<B::RenderPass>,
+    framebuffer: ManuallyDrop<B::Framebuffer>,
     pipeline: ManuallyDrop<B::GraphicsPipeline>,
     pipeline_layout: ManuallyDrop<B::PipelineLayout>,
-    desc_set: B::DescriptorSet,
+    desc_set: Option<B::DescriptorSet>,
     set_layout: ManuallyDrop<B::DescriptorSetLayout>,
     submission_complete_semaphores: Vec<B::Semaphore>,
     submission_complete_fences: Vec<B::Fence>,
@@ -199,6 +196,11 @@ struct Renderer<B: hal::Backend> {
     sampler: ManuallyDrop<B::Sampler>,
     frames_in_flight: usize,
     frame: u64,
+    // These members are dropped in the declaration order.
+    device: B::Device,
+    adapter: hal::adapter::Adapter<B>,
+    queue_group: QueueGroup<B>,
+    instance: B::Instance,
 }
 
 impl<B> Renderer<B>
@@ -206,7 +208,7 @@ where
     B: hal::Backend,
 {
     fn new(
-        instance: Option<B::Instance>,
+        instance: B::Instance,
         mut surface: B::Surface,
         adapter: hal::adapter::Adapter<B>,
     ) -> Renderer<B> {
@@ -536,6 +538,7 @@ where
         });
 
         let swap_config = window::SwapchainConfig::from_caps(&caps, format, DIMS);
+        let fat = swap_config.framebuffer_attachment();
         println!("{:?}", swap_config);
         let extent = swap_config.extent;
         unsafe {
@@ -569,6 +572,20 @@ where
                     .expect("Can't create render pass"),
             )
         };
+
+        let framebuffer = ManuallyDrop::new(unsafe {
+            device
+                .create_framebuffer(
+                    &render_pass,
+                    iter::once(fat),
+                    i::Extent {
+                        width: DIMS.width,
+                        height: DIMS.height,
+                        depth: 1,
+                    },
+                )
+                .unwrap()
+        });
 
         // Define maximum number of frames we want to be able to be "in flight" (being computed
         // simultaneously) at once
@@ -735,9 +752,10 @@ where
             dimensions: DIMS,
             viewport,
             render_pass,
+            framebuffer,
             pipeline,
             pipeline_layout,
-            desc_set,
+            desc_set: Some(desc_set),
             set_layout,
             submission_complete_semaphores,
             submission_complete_fences,
@@ -760,16 +778,30 @@ where
         let caps = self.surface.capabilities(&self.adapter.physical_device);
         let swap_config = window::SwapchainConfig::from_caps(&caps, self.format, self.dimensions);
         println!("{:?}", swap_config);
+
         let extent = swap_config.extent.to_extent();
+        self.viewport.rect.w = extent.width as _;
+        self.viewport.rect.h = extent.height as _;
+
+        unsafe {
+            self.device
+                .destroy_framebuffer(ManuallyDrop::into_inner(ptr::read(&self.framebuffer)));
+            self.framebuffer = ManuallyDrop::new(
+                self.device
+                    .create_framebuffer(
+                        &self.render_pass,
+                        iter::once(swap_config.framebuffer_attachment()),
+                        extent,
+                    )
+                    .unwrap(),
+            )
+        };
 
         unsafe {
             self.surface
                 .configure_swapchain(&self.device, swap_config)
                 .expect("Can't create swapchain");
         }
-
-        self.viewport.rect.w = extent.width as _;
-        self.viewport.rect.h = extent.height as _;
     }
 
     fn render(&mut self) {
@@ -781,20 +813,6 @@ where
                     return;
                 }
             }
-        };
-
-        let framebuffer = unsafe {
-            self.device
-                .create_framebuffer(
-                    &self.render_pass,
-                    iter::once(surface_image.borrow()),
-                    i::Extent {
-                        width: self.dimensions.width,
-                        height: self.dimensions.height,
-                        depth: 1,
-                    },
-                )
-                .unwrap()
         };
 
         // Compute index into our resource ring buffers based on the frame number
@@ -833,19 +851,22 @@ where
             cmd_buffer.bind_graphics_descriptor_sets(
                 &self.pipeline_layout,
                 0,
-                iter::once(&self.desc_set),
+                self.desc_set.as_ref(),
                 &[],
             );
 
             cmd_buffer.begin_render_pass(
                 &self.render_pass,
-                &framebuffer,
+                &self.framebuffer,
                 self.viewport.rect,
-                &[command::ClearValue {
-                    color: command::ClearColor {
-                        float32: [0.8, 0.8, 0.8, 1.0],
+                iter::once(command::RenderAttachmentInfo {
+                    image_view: surface_image.borrow(),
+                    clear_value: command::ClearValue {
+                        color: command::ClearColor {
+                            float32: [0.8, 0.8, 0.8, 1.0],
+                        },
                     },
-                }],
+                }),
                 command::SubpassContents::Inline,
             );
             cmd_buffer.draw(0..6, 0..1);
@@ -869,8 +890,6 @@ where
                 Some(&mut self.submission_complete_semaphores[frame_idx]),
             );
 
-            self.device.destroy_framebuffer(framebuffer);
-
             if result.is_err() {
                 self.recreate_swapchain();
             }
@@ -889,6 +908,7 @@ where
         self.device.wait_idle().unwrap();
         unsafe {
             // TODO: When ManuallyDrop::take (soon to be renamed to ManuallyDrop::read) is stabilized we should use that instead.
+            let _ = self.desc_set.take();
             self.device
                 .destroy_descriptor_pool(ManuallyDrop::into_inner(ptr::read(&self.desc_pool)));
             self.device
@@ -919,6 +939,8 @@ where
             }
             self.device
                 .destroy_render_pass(ManuallyDrop::into_inner(ptr::read(&self.render_pass)));
+            self.device
+                .destroy_framebuffer(ManuallyDrop::into_inner(ptr::read(&self.framebuffer)));
             self.surface.unconfigure_swapchain(&self.device);
             self.device
                 .free_memory(ManuallyDrop::into_inner(ptr::read(&self.buffer_memory)));
@@ -933,10 +955,8 @@ where
                 .destroy_pipeline_layout(ManuallyDrop::into_inner(ptr::read(
                     &self.pipeline_layout,
                 )));
-            if let Some(instance) = &self.instance {
-                let surface = ManuallyDrop::into_inner(ptr::read(&self.surface));
-                instance.destroy_surface(surface);
-            }
+            let surface = ManuallyDrop::into_inner(ptr::read(&self.surface));
+            self.instance.destroy_surface(surface);
         }
         println!("DROPPED!");
     }

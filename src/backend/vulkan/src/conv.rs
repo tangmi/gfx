@@ -380,13 +380,19 @@ pub fn map_query_result_flags(flags: query::ResultFlags) -> vk::QueryResultFlags
     vk::QueryResultFlags::from_raw(flags.bits() & vk::QueryResultFlags::all().as_raw())
 }
 
-pub fn map_image_features(features: vk::FormatFeatureFlags) -> format::ImageFeature {
+pub fn map_image_features(
+    features: vk::FormatFeatureFlags,
+    supports_transfer_bits: bool,
+) -> format::ImageFeature {
     let mut mapped_flags = format::ImageFeature::empty();
     if features.contains(vk::FormatFeatureFlags::SAMPLED_IMAGE) {
         mapped_flags |= format::ImageFeature::SAMPLED;
     }
     if features.contains(vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_LINEAR) {
         mapped_flags |= format::ImageFeature::SAMPLED_LINEAR;
+    }
+    if features.contains(vk::FormatFeatureFlags::SAMPLED_IMAGE_FILTER_MINMAX) {
+        mapped_flags |= format::ImageFeature::SAMPLED_MINMAX;
     }
 
     if features.contains(vk::FormatFeatureFlags::STORAGE_IMAGE) {
@@ -409,9 +415,23 @@ pub fn map_image_features(features: vk::FormatFeatureFlags) -> format::ImageFeat
 
     if features.contains(vk::FormatFeatureFlags::BLIT_SRC) {
         mapped_flags |= format::ImageFeature::BLIT_SRC;
+        if !supports_transfer_bits {
+            mapped_flags |= format::ImageFeature::TRANSFER_SRC;
+        }
     }
     if features.contains(vk::FormatFeatureFlags::BLIT_DST) {
         mapped_flags |= format::ImageFeature::BLIT_DST;
+        if !supports_transfer_bits {
+            mapped_flags |= format::ImageFeature::TRANSFER_DST;
+        }
+    }
+    if supports_transfer_bits {
+        if features.contains(vk::FormatFeatureFlags::TRANSFER_SRC) {
+            mapped_flags |= format::ImageFeature::TRANSFER_SRC;
+        }
+        if features.contains(vk::FormatFeatureFlags::TRANSFER_DST) {
+            mapped_flags |= format::ImageFeature::TRANSFER_DST;
+        }
     }
 
     mapped_flags
@@ -421,7 +441,10 @@ pub fn map_buffer_features(features: vk::FormatFeatureFlags) -> format::BufferFe
     format::BufferFeature::from_bits_truncate(features.as_raw())
 }
 
-pub(crate) fn map_device_features(features: Features) -> crate::DeviceCreationFeatures {
+pub(crate) fn map_device_features(
+    features: Features,
+    imageless_framebuffers: bool,
+) -> crate::DeviceCreationFeatures {
     crate::DeviceCreationFeatures {
         // vk::PhysicalDeviceFeatures is a struct composed of Bool32's while
         // Features is a bitfield so we need to map everything manually
@@ -531,6 +554,15 @@ pub(crate) fn map_device_features(features: Features) -> crate::DeviceCreationFe
         } else {
             None
         },
+        imageless_framebuffers: if imageless_framebuffers {
+            Some(
+                vk::PhysicalDeviceImagelessFramebufferFeaturesKHR::builder()
+                    .imageless_framebuffer(imageless_framebuffers)
+                    .build(),
+            )
+        } else {
+            None
+        },
         buffer_device_address: if features.intersects(
             Features::ACCELERATION_STRUCTURE | Features::ACCELERATION_STRUCTURE_INDIRECT_BUILD,
         ) {
@@ -571,8 +603,6 @@ pub(crate) fn map_device_features(features: Features) -> crate::DeviceCreationFe
                     // .ray_traversal_primitive_culling()
                     .build(),
             )
-        } else {
-            None
         },
     }
 }
@@ -714,7 +744,11 @@ pub fn map_descriptor_pool_create_flags(
     vk::DescriptorPoolCreateFlags::from_raw(flags.bits())
 }
 
-pub fn map_memory_properties(flags: vk::MemoryPropertyFlags) -> hal::memory::Properties {
+pub fn map_sample_count_flags(samples: image::NumSamples) -> vk::SampleCountFlags {
+    vk::SampleCountFlags::from_raw((samples as u32) & vk::SampleCountFlags::all().as_raw())
+}
+
+pub fn map_vk_memory_properties(flags: vk::MemoryPropertyFlags) -> hal::memory::Properties {
     use crate::memory::Properties;
     let mut properties = Properties::empty();
 
@@ -737,7 +771,7 @@ pub fn map_memory_properties(flags: vk::MemoryPropertyFlags) -> hal::memory::Pro
     properties
 }
 
-pub fn map_memory_heap_flags(flags: vk::MemoryHeapFlags) -> hal::memory::HeapFlags {
+pub fn map_vk_memory_heap_flags(flags: vk::MemoryHeapFlags) -> hal::memory::HeapFlags {
     use hal::memory::HeapFlags;
     let mut hal_flags = HeapFlags::empty();
 
