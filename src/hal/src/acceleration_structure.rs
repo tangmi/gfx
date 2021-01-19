@@ -403,16 +403,19 @@ mod struct_size_tests {
     #[test]
     fn transform_matrix() {
         assert_eq!(std::mem::size_of::<TransformMatrix>(), 48);
+        assert_eq!(std::mem::size_of::<[TransformMatrix; 2]>(), 96);
     }
 
     #[test]
     fn aabb_positions() {
         assert_eq!(std::mem::size_of::<AabbPositions>(), 24);
+        assert_eq!(std::mem::size_of::<[AabbPositions; 2]>(), 48);
     }
 
     #[test]
     fn instance() {
         assert_eq!(std::mem::size_of::<Instance>(), 64);
+        assert_eq!(std::mem::size_of::<[Instance; 2]>(), 128);
     }
 }
 
