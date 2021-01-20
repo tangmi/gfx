@@ -46,9 +46,9 @@ pub enum Buffer {
 impl Buffer {
     // Asserts that the buffer is bound and returns the raw gl buffer along with its sub-range.
     pub(crate) fn as_bound(&self) -> (RawBuffer, Range<u64>) {
-        match self {
+        match *self {
             Buffer::Unbound { .. } => panic!("Expected bound buffer!"),
-            Buffer::Bound { buffer, range, .. } => (*buffer, range.clone()),
+            Buffer::Bound { buffer, ref range } => (buffer, range.clone()),
         }
     }
 }
@@ -252,7 +252,7 @@ pub struct DescriptorSet {
 pub struct DescriptorPool {}
 
 impl pso::DescriptorPool<Backend> for DescriptorPool {
-    unsafe fn allocate_set(
+    unsafe fn allocate_one(
         &mut self,
         layout: &DescriptorSetLayout,
     ) -> Result<DescriptorSet, pso::AllocationError> {

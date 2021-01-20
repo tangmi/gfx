@@ -5,9 +5,8 @@ use crate::{
 
 use arrayvec::ArrayVec;
 use glow::HasContext;
-use smallvec::SmallVec;
 
-use std::{borrow::Borrow, mem, slice};
+use std::{mem, slice};
 
 // State caching system for command queue.
 //
@@ -59,7 +58,11 @@ pub struct CommandQueue {
     features: hal::Features,
     vao: Option<native::VertexArray>,
     state: State,
+    fill_buffer: native::RawBuffer,
+    fill_data: Box<[u32]>,
 }
+
+const FILL_DATA_WORDS: usize = 16 << 10;
 
 impl CommandQueue {
     /// Create a new command queue.
@@ -68,11 +71,25 @@ impl CommandQueue {
         features: hal::Features,
         vao: Option<native::VertexArray>,
     ) -> Self {
+        let gl = &share.context;
+        let fill_buffer = unsafe {
+            let buffer = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::COPY_READ_BUFFER, Some(buffer));
+            gl.buffer_data_size(
+                glow::COPY_READ_BUFFER,
+                FILL_DATA_WORDS as i32 * 4,
+                glow::STREAM_DRAW,
+            );
+            gl.bind_buffer(glow::COPY_READ_BUFFER, None);
+            buffer
+        };
         CommandQueue {
             share: share.clone(),
             features,
             vao,
             state: State::new(),
+            fill_buffer,
+            fill_data: vec![0; FILL_DATA_WORDS].into_boxed_slice(),
         }
     }
 
@@ -205,34 +222,12 @@ impl CommandQueue {
         unsafe { gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None) };
         self.state.index_buffer = None;
 
-        // Reset viewports
-        if self.state.num_viewports == 1 {
-            unsafe {
-                gl.viewport(0, 0, 0, 0);
-                gl.depth_range_f32(0.0, 1.0);
-            };
-        } else if self.state.num_viewports > 1 {
-            // 16 viewports is a common limit set in drivers.
-            let viewports: SmallVec<[[f32; 4]; 16]> = (0..self.state.num_viewports)
-                .map(|_| [0.0, 0.0, 0.0, 0.0])
-                .collect();
-            let depth_ranges: SmallVec<[[f64; 2]; 16]> =
-                (0..self.state.num_viewports).map(|_| [0.0, 0.0]).collect();
-            unsafe {
-                gl.viewport_f32_slice(0, viewports.len() as i32, &viewports);
-                gl.depth_range_f64_slice(0, depth_ranges.len() as i32, &depth_ranges);
-            }
-        }
-
-        // Reset scissors
-        if self.state.num_scissors == 1 {
-            unsafe { gl.scissor(0, 0, 0, 0) };
-        } else if self.state.num_scissors > 1 {
-            // 16 viewports is a common limit set in drivers.
-            let scissors: SmallVec<[[i32; 4]; 16]> =
-                (0..self.state.num_scissors).map(|_| [0, 0, 0, 0]).collect();
-            unsafe { gl.scissor_slice(0, scissors.len() as i32, scissors.as_slice()) };
-        }
+        // Reset viewports && scissors
+        unsafe {
+            gl.viewport(0, 0, 0, 0);
+            gl.depth_range_f32(0.0, 1.0);
+            gl.scissor(0, 0, 0, 0);
+        };
     }
 
     fn process(&mut self, cmd: &com::Command, data_buf: &[u8]) {
@@ -505,6 +500,43 @@ impl CommandQueue {
                     self.bind_target(target, attachment, view);
                 }
             }
+            com::Command::FillBuffer(buffer, ref range, value) => {
+                //Note: buffers with `DYNAMIC_STORAGE_BIT` can't be uploaded to directly.
+                // And we expect the target buffers to be on GPU, where we assign this flag.
+
+                let total_size = (range.end - range.start) as i32;
+                let temp_size = (total_size as usize / 4).min(FILL_DATA_WORDS);
+                let mut dst_offset = range.start as i32;
+                for v in self.fill_data[..temp_size].iter_mut() {
+                    *v = value;
+                }
+
+                let gl = &self.share.context;
+                unsafe {
+                    gl.bind_buffer(glow::COPY_READ_BUFFER, Some(self.fill_buffer));
+                    gl.buffer_sub_data_u8_slice(
+                        glow::COPY_READ_BUFFER,
+                        0,
+                        slice::from_raw_parts(self.fill_data.as_ptr() as *const u8, temp_size * 4),
+                    );
+                    gl.bind_buffer(glow::COPY_WRITE_BUFFER, Some(buffer));
+
+                    while dst_offset < range.end as i32 {
+                        let copy_size = (temp_size as i32 * 4).min(range.end as i32 - dst_offset);
+                        gl.copy_buffer_sub_data(
+                            glow::COPY_READ_BUFFER,
+                            glow::COPY_WRITE_BUFFER,
+                            0,
+                            dst_offset,
+                            copy_size,
+                        );
+                        dst_offset += copy_size;
+                    }
+
+                    gl.bind_buffer(glow::COPY_READ_BUFFER, None);
+                    gl.bind_buffer(glow::COPY_WRITE_BUFFER, None);
+                }
+            }
             com::Command::SetDrawColorBuffers(ref indices) => {
                 let gl_indices = indices
                     .iter()
@@ -647,7 +679,7 @@ impl CommandQueue {
                 gl.bind_buffer(glow::PIXEL_UNPACK_BUFFER, None);
             },
             com::Command::CopyBufferToRenderbuffer(..) => {
-                unimplemented!() //TODO: use FBO
+                error!("CopyBufferToRenderbuffer is not implemented");
             }
             com::Command::CopyTextureToBuffer {
                 src_texture,
@@ -679,10 +711,12 @@ impl CommandQueue {
                 gl.bind_buffer(glow::PIXEL_PACK_BUFFER, None);
             },
             com::Command::CopyRenderbufferToBuffer(..) => {
-                unimplemented!() //TODO: use FBO
+                //TODO: use FBO
+                error!("CopyRenderbufferToBuffer is not implemented");
             }
             com::Command::CopyImageToTexture(..) => {
-                unimplemented!() //TODO: use FBO
+                //TODO: use FBO
+                error!("CopyImageToTexture is not implemented");
             }
             com::Command::CopyImageToRenderbuffer {
                 src_image,
@@ -1074,21 +1108,21 @@ impl CommandQueue {
 }
 
 impl hal::queue::CommandQueue<Backend> for CommandQueue {
-    unsafe fn submit<'a, T, Ic, S, Iw, Is>(
+    unsafe fn submit<'a, Ic, Iw, Is>(
         &mut self,
-        submit_info: hal::queue::Submission<Ic, Iw, Is>,
+        command_buffers: Ic,
+        _wait_semaphores: Iw,
+        _signal_semaphores: Is,
         fence: Option<&mut native::Fence>,
     ) where
-        T: 'a + Borrow<com::CommandBuffer>,
-        Ic: IntoIterator<Item = &'a T>,
-        S: 'a + Borrow<native::Semaphore>,
-        Iw: IntoIterator<Item = (&'a S, hal::pso::PipelineStage)>,
-        Is: IntoIterator<Item = &'a S>,
+        Ic: IntoIterator<Item = &'a com::CommandBuffer>,
+        Iw: IntoIterator<Item = (&'a native::Semaphore, hal::pso::PipelineStage)>,
+        Is: IntoIterator<Item = &'a native::Semaphore>,
     {
         use crate::pool::BufferMemory;
         {
-            for buf in submit_info.command_buffers {
-                let cb = &buf.borrow().data;
+            for cmd_buf in command_buffers {
+                let cb = &cmd_buf.data;
                 let memory = cb
                     .memory
                     .try_lock()
