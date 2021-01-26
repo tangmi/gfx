@@ -150,7 +150,8 @@ fn main() {
 
     let adapter = adapters.remove(0);
 
-    let required_features = hal::Features::ACCELERATION_STRUCTURE; // | hal::Features::RAY_QUERY;
+    let required_features =
+        hal::Features::ACCELERATION_STRUCTURE | hal::Features::RAY_TRACING_PIPELINE;
 
     assert!(adapter
         .physical_device
@@ -159,6 +160,8 @@ fn main() {
 
     let memory_types = adapter.physical_device.memory_properties().memory_types;
     let limits = adapter.physical_device.limits();
+
+    dbg!(&limits);
 
     // Build a new device and associated command queues
     let family = adapter

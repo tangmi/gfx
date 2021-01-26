@@ -32,7 +32,7 @@ use ash::{
     extensions::{
         self,
         ext::{DebugReport, DebugUtils},
-        khr::{AccelerationStructure, DrawIndirectCount, RayQuery, Swapchain},
+        khr::{AccelerationStructure, DrawIndirectCount, RayQuery, RayTracingPipeline, Swapchain},
         nv::MeshShader,
     },
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
@@ -684,6 +684,7 @@ pub struct DeviceCreationFeatures {
     imageless_framebuffers: Option<vk::PhysicalDeviceImagelessFramebufferFeaturesKHR>,
     buffer_device_address: Option<vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR>,
     acceleration_structure: Option<vk::PhysicalDeviceAccelerationStructureFeaturesKHR>,
+    ray_tracing_pipeline: Option<vk::PhysicalDeviceRayTracingPipelineFeaturesKHR>,
 }
 
 impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
@@ -782,6 +783,14 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 enabled_extensions.push(vk::KhrSpirv14Fn::name());
             }
 
+            if requested_features.contains(Features::RAY_TRACING_PIPELINE) {
+                enabled_extensions.push(RayTracingPipeline::name());
+
+                // TODO better handling of extension dependencies? These are required by VK_KHR_ray_tracing_pipeline
+                enabled_extensions.push(vk::KhrSpirv14Fn::name());
+                enabled_extensions.push(vk::KhrShaderFloatControlsFn::name());
+            }
+
             enabled_extensions
         };
 
@@ -842,6 +851,13 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 info
             };
 
+            let info =
+                if let Some(ref mut ray_tracing_pipeline) = enabled_features.ray_tracing_pipeline {
+                    info.push_next(ray_tracing_pipeline)
+                } else {
+                    info
+                };
+
             match self.instance.inner.create_device(self.handle, &info, None) {
                 Ok(device) => device,
                 Err(e) => {
@@ -901,6 +917,13 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 None
             };
 
+        let ray_tracing_pipeline_fn = if requested_features.contains(Features::RAY_TRACING_PIPELINE)
+        {
+            Some(RayTracingPipeline::new(&self.instance.inner, &device_raw))
+        } else {
+            None
+        };
+
         let device = Device {
             shared: Arc::new(RawDevice {
                 raw: device_raw,
@@ -911,6 +934,7 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                     draw_indirect_count: indirect_count_fn,
                     buffer_device_address: buffer_device_address_fn,
                     acceleration_structure: acceleration_structure_fn,
+                    ray_tracing_pipeline: ray_tracing_pipeline_fn,
                 },
                 maintenance_level,
                 imageless_framebuffers,
@@ -1061,6 +1085,7 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
         let mut buffer_device_address = None;
         let mut acceleration_structure_features = None;
         let mut ray_query_features = None;
+        let mut ray_tracing_pipeline_features = None;
         let features = if let Some(ref get_device_properties) =
             self.instance.get_physical_device_properties
         {
@@ -1098,6 +1123,14 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 ray_query_features = Some(vk::PhysicalDeviceRayQueryFeaturesKHR::builder().build());
 
                 let mut_ref = ray_query_features.as_mut().unwrap();
+                mut_ref.p_next = mem::replace(&mut features2.p_next, mut_ref as *mut _ as *mut _);
+            }
+
+            if self.supports_extension(RayTracingPipeline::name()) {
+                ray_tracing_pipeline_features =
+                    Some(vk::PhysicalDeviceRayTracingPipelineFeaturesKHR::builder().build());
+
+                let mut_ref = ray_tracing_pipeline_features.as_mut().unwrap();
                 mut_ref.p_next = mem::replace(&mut features2.p_next, mut_ref as *mut _ as *mut _);
             }
 
@@ -1339,6 +1372,28 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
         if let Some(ray_query_features) = ray_query_features {
             if ray_query_features.ray_query == vk::TRUE {
                 bits |= Features::RAY_QUERY;
+            }
+        }
+        if let Some(ray_tracing_pipeline_features) = ray_tracing_pipeline_features {
+            if ray_tracing_pipeline_features.ray_tracing_pipeline == vk::TRUE {
+                bits |= Features::RAY_TRACING_PIPELINE;
+            }
+            if ray_tracing_pipeline_features.ray_tracing_pipeline_shader_group_handle_capture_replay
+                == vk::TRUE
+            {
+                // bits |= Features::RAY_TRACING_PIPELINE_SHADER_GROUP_HANDLE_CAPTURE_REPLAY;
+            }
+            if ray_tracing_pipeline_features
+                .ray_tracing_pipeline_shader_group_handle_capture_replay_mixed
+                == vk::TRUE
+            {
+                // bits |= Features::RAY_TRACING_PIPELINE_SHADER_GROUP_HANDLE_CAPTURE_REPLAY_MIXED;
+            }
+            if ray_tracing_pipeline_features.ray_tracing_pipeline_trace_rays_indirect == vk::TRUE {
+                bits |= Features::TRACE_RAYS_INDIRECT;
+            }
+            if ray_tracing_pipeline_features.ray_traversal_primitive_culling == vk::TRUE {
+                // bits |= Features::RAY_TRAVERSAL_PRIMITIVE_CULLING;
             }
         }
         if let Some(buffer_device_address) = buffer_device_address {
@@ -1592,6 +1647,7 @@ struct DeviceExtensionFunctions {
     // TODO: this was included in Vulkan 1.2 core, this extension is needed before then and may not be supported after
     buffer_device_address: Option<vk::KhrBufferDeviceAddressFn>,
     acceleration_structure: Option<AccelerationStructure>,
+    ray_tracing_pipeline: Option<RayTracingPipeline>,
 }
 
 #[doc(hidden)]

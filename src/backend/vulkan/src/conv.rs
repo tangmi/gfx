@@ -592,6 +592,19 @@ pub(crate) fn map_device_features(
         } else {
             None
         },
+        ray_tracing_pipeline: if features.contains(Features::RAY_TRACING_PIPELINE) {
+            Some(
+                vk::PhysicalDeviceRayTracingPipelineFeaturesKHR::builder()
+                    .ray_tracing_pipeline(features.contains(Features::RAY_TRACING_PIPELINE))
+                    // .ray_tracing_pipeline_shader_group_handle_capture_replay()
+                    // .ray_tracing_pipeline_shader_group_handle_capture_replay_mixed()
+                    // .ray_tracing_pipeline_trace_rays_indirect()
+                    // .ray_traversal_primitive_culling()
+                    .build(),
+            )
+        } else {
+            None
+        },
     }
 }
 

@@ -288,6 +288,11 @@ bitflags! {
 
         /// Support ray query functionality in shaders.
         const RAY_QUERY = 0x0020 << 112;
+
+        /// Supports ray tracing pipelines.
+        const RAY_TRACING_PIPELINE = 0x0040 << 112;
+        /// Supports the indirect trace rays call.
+        const TRACE_RAYS_INDIRECT = 0x0080 << 112;
     }
 }
 
