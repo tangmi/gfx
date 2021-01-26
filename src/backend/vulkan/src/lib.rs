@@ -783,7 +783,11 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 enabled_extensions.push(vk::KhrSpirv14Fn::name());
             }
 
-            if requested_features.contains(Features::RAY_TRACING_PIPELINE) {
+            if requested_features.intersects(
+                Features::RAY_TRACING_PIPELINE
+                    | Features::TRACE_RAYS_INDIRECT
+                    | Features::RAY_TRAVERSAL_PRIMITIVE_CULLING,
+            ) {
                 enabled_extensions.push(RayTracingPipeline::name());
 
                 // TODO better handling of extension dependencies? These are required by VK_KHR_ray_tracing_pipeline
@@ -1393,7 +1397,7 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 bits |= Features::TRACE_RAYS_INDIRECT;
             }
             if ray_tracing_pipeline_features.ray_traversal_primitive_culling == vk::TRUE {
-                // bits |= Features::RAY_TRAVERSAL_PRIMITIVE_CULLING;
+                bits |= Features::RAY_TRAVERSAL_PRIMITIVE_CULLING;
             }
         }
         if let Some(buffer_device_address) = buffer_device_address {
@@ -1534,6 +1538,14 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             max_per_stage_descriptor_acceleration_structures: 0,
             max_descriptor_set_acceleration_structures: 0,
             min_acceleration_structure_scratch_offset_alignment: 0,
+
+            shader_group_handle_size: 0,
+            max_ray_recursion_depth: 0,
+            max_shader_group_stride: 0,
+            shader_group_base_alignment: 0,
+            max_ray_dispatch_invocation_count: 0,
+            shader_group_handle_alignment: 0,
+            max_ray_hit_attribute_size: 0,
         };
 
         if let Some(get_physical_device_properties) =
@@ -1542,6 +1554,8 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             let mut mesh_shader = vk::PhysicalDeviceMeshShaderPropertiesNV::builder();
             let mut acceleration_structure =
                 vk::PhysicalDeviceAccelerationStructurePropertiesKHR::builder();
+            let mut ray_tracing_pipeline =
+                vk::PhysicalDeviceRayTracingPipelinePropertiesKHR::builder();
 
             unsafe {
                 get_physical_device_properties.get_physical_device_properties2_khr(
@@ -1549,6 +1563,7 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                     &mut vk::PhysicalDeviceProperties2::builder()
                         .push_next(&mut mesh_shader)
                         .push_next(&mut acceleration_structure)
+                        .push_next(&mut ray_tracing_pipeline)
                         .build() as *mut _,
                 );
             }
@@ -1581,6 +1596,18 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 acceleration_structure.max_descriptor_set_acceleration_structures;
             limits.min_acceleration_structure_scratch_offset_alignment =
                 acceleration_structure.min_acceleration_structure_scratch_offset_alignment;
+
+            limits.shader_group_handle_size = ray_tracing_pipeline.shader_group_handle_size;
+            limits.max_ray_recursion_depth = ray_tracing_pipeline.max_ray_recursion_depth;
+            limits.max_shader_group_stride = ray_tracing_pipeline.max_shader_group_stride;
+            limits.shader_group_base_alignment = ray_tracing_pipeline.shader_group_base_alignment;
+            // TODO(capture-replay)
+            // limits.shader_group_handle_capture_replay_size = ray_tracing_pipeline.shader_group_handle_capture_replay_size;
+            limits.max_ray_dispatch_invocation_count =
+                ray_tracing_pipeline.max_ray_dispatch_invocation_count;
+            limits.shader_group_handle_alignment =
+                ray_tracing_pipeline.shader_group_handle_alignment;
+            limits.max_ray_hit_attribute_size = ray_tracing_pipeline.max_ray_hit_attribute_size;
         }
 
         limits

@@ -293,6 +293,8 @@ bitflags! {
         const RAY_TRACING_PIPELINE = 0x0040 << 112;
         /// Supports the indirect trace rays call.
         const TRACE_RAYS_INDIRECT = 0x0080 << 112;
+        /// TODO docs
+        const RAY_TRAVERSAL_PRIMITIVE_CULLING = 0x0100 << 112;
     }
 }
 
@@ -556,6 +558,23 @@ pub struct Limits {
     // TODO since we don't use `vk::DescriptorSetLayoutCreateFlags`, I'm leaving this out
     // pub max_per_stage_descriptor_update_after_bind_acceleration_structures: u32,
     // pub max_descriptor_set_update_after_bind_acceleration_structures: u32,
+    /// TODO docs
+    pub shader_group_handle_size: u32,
+    /// TODO docs
+    pub max_ray_recursion_depth: u32,
+    /// TODO docs
+    pub max_shader_group_stride: u32,
+    /// TODO docs
+    pub shader_group_base_alignment: u32,
+    // TODO(capture-replay)
+    // /// TODO docs
+    // pub shader_group_handle_capture_replay_size: u32,
+    /// TODO docs
+    pub max_ray_dispatch_invocation_count: u32,
+    /// TODO docs
+    pub shader_group_handle_alignment: u32,
+    /// TODO docs
+    pub max_ray_hit_attribute_size: u32,
 }
 
 /// An enum describing the type of an index value in a slice's index buffer
