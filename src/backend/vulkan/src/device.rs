@@ -892,6 +892,14 @@ impl d::Device<B> for Device {
         }
     }
 
+    unsafe fn create_ray_tracing_pipeline<'a>(
+        &self,
+        _desc: &pso::RayTracingPipelineDesc<'a, B>,
+        _cache: Option<&n::PipelineCache>,
+    ) -> Result<n::RayTracingPipeline, pso::CreationError> {
+        unimplemented!()
+    }
+
     unsafe fn create_framebuffer<T>(
         &self,
         renderpass: &n::RenderPass,
@@ -1850,8 +1858,7 @@ impl d::Device<B> for Device {
             .ty(conv::map_acceleration_structure_type(desc.ty))
             .flags(conv::map_acceleration_structure_flags(desc.flags))
             .geometries(
-                desc
-                    .geometries
+                desc.geometries
                     .iter()
                     .map(|&geometry| conv::map_geometry(&self.shared, geometry))
                     .collect::<Vec<_>>()
@@ -1926,6 +1933,25 @@ impl d::Device<B> for Device {
         }
     }
 
+    unsafe fn get_ray_tracing_shader_group_handles<'a>(
+        &self,
+        _pipeline: &'a n::RayTracingPipeline,
+        _first_group: u32,
+        _group_count: u32,
+        _data: &mut [u8],
+    ) -> Result<(), d::OutOfMemory> {
+        unimplemented!()
+    }
+
+    unsafe fn get_ray_tracing_shader_group_stack_size<'a>(
+        &self,
+        _pipeline: &'a n::RayTracingPipeline,
+        _group: u32,
+        _group_shader: pso::GroupShader,
+    ) -> u64 {
+        unimplemented!()
+    }
+
     unsafe fn destroy_query_pool(&self, pool: n::QueryPool) {
         self.shared.raw.destroy_query_pool(pool.0, None);
     }
@@ -1947,6 +1973,10 @@ impl d::Device<B> for Device {
     }
 
     unsafe fn destroy_compute_pipeline(&self, pipeline: n::ComputePipeline) {
+        self.shared.raw.destroy_pipeline(pipeline.0, None);
+    }
+
+    unsafe fn destroy_ray_tracing_pipeline(&self, pipeline: n::RayTracingPipeline) {
         self.shared.raw.destroy_pipeline(pipeline.0, None);
     }
 
