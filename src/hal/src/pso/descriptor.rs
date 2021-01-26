@@ -94,7 +94,7 @@ pub enum DescriptorType {
     },
     /// A descriptor associated with an input attachment.
     InputAttachment,
-    /// TODO docs
+    /// A descriptor associated with an acceleration structure.
     AccelerationStructure,
 }
 

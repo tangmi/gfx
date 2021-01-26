@@ -1,4 +1,4 @@
-//! TODO docs
+//! Types to describe and handle acceleration structures.
 
 use crate::{
     buffer::{Offset, Stride},
@@ -88,10 +88,11 @@ pub struct GeometryDesc<'a, B: Backend> {
     /// The type of acceleration structure to build.
     pub ty: Type,
 
-    // TODO: We could enforce the following the type system?
-    // - in both vulkan (via `VUID-VkAccelerationStructureBuildGeometryInfoKHR-type-03792`) and DX12 (via type system), all of the structs here must be the same variant.
-    // - blas must be triangles or aabbs, tlas must be instances
     /// List of geometries to be stored in an acceleration structure.
+    ///
+    /// All geometries in this list must have the same variant.
+    /// - For bottom-level structures, the geometries must be triangles or AABBs.
+    /// - For top-level structures, the geometries must be instances.
     pub geometries: &'a [&'a Geometry<'a, B>],
 }
 
@@ -164,13 +165,12 @@ pub struct GeometryTriangles<'a, B: Backend> {
 }
 
 /// A 3x4 row-major affine transformation matrix.
-// TODO `GeometryTriangles::transform` depends on the layout of this struct
 #[derive(Debug, Copy, Clone)]
 #[repr(transparent)]
 pub struct TransformMatrix([[f32; 4]; 3]);
 
 impl TransformMatrix {
-    /// TODO docs
+    /// The identity transform.
     pub fn identity() -> Self {
         Self([
             [1.0, 0.0, 0.0, 0.0],
@@ -242,12 +242,13 @@ bitflags! {
     }
 }
 
-/// todo docs
+/// The device address for an acceleration structure.
 ///
-/// pls do not by tempted by the inner value!
+/// This is only used to refer to bottom-level acceleration structure in [`Instances`] written to device buffers by the user and referenced by [`GeometryInstances`] to create top-level acceleration structures.
+///
+/// Note: The inner value is `pub` to allow for backend implementations, but should be otherwise treated as opaque.
 #[derive(Copy, Clone)]
 #[repr(transparent)]
-// TODO private ctor that backends have access to?
 pub struct DeviceAddress(pub u64);
 
 impl std::fmt::Debug for DeviceAddress {
@@ -296,34 +297,17 @@ pub struct Instance {
     pub acceleration_structure_reference: DeviceAddress,
 }
 
-const TOP_24_MASK: u32 = 0xFFFFFF00;
-const BOTTOM_8_MASK: u32 = 0xFF;
-
 impl std::fmt::Debug for Instance {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Instance")
             .field("transform", &self.transform)
-            .field(
-                "instance_custom_index",
-                &((self.instance_custom_index_24_and_mask_8 & TOP_24_MASK) >> 8),
-            )
-            .field(
-                "mask",
-                &(self.instance_custom_index_24_and_mask_8 & BOTTOM_8_MASK),
-            )
+            .field("instance_custom_index", &self.instance_custom_index())
+            .field("mask", &self.mask())
             .field(
                 "instance_shader_binding_table_record_offset",
-                &((self.instance_shader_binding_table_record_offset_24_and_flags_8 & TOP_24_MASK)
-                    >> 8),
+                &self.instance_shader_binding_table_record_offset(),
             )
-            .field(
-                "flags",
-                &(InstanceFlags::from_bits(
-                    (self.instance_shader_binding_table_record_offset_24_and_flags_8
-                        & BOTTOM_8_MASK) as u8,
-                )
-                .unwrap()),
-            )
+            .field("flags", &self.flags())
             .field(
                 "acceleration_structure_reference",
                 &self.acceleration_structure_reference,
@@ -332,9 +316,8 @@ impl std::fmt::Debug for Instance {
     }
 }
 
-// TODO tests
 impl Instance {
-    /// TODO docs
+    /// Create an reference to a bottom-level acceleration structure.
     pub fn new(blas: DeviceAddress) -> Self {
         Self {
             transform: TransformMatrix::identity(),
@@ -344,34 +327,60 @@ impl Instance {
         }
     }
 
+    const TOP_24_MASK: u32 = 0xFFFFFF00;
+    const BOTTOM_8_MASK: u32 = 0xFF;
+
     fn fits_in_24_bits(n: u32) -> bool {
-        n < 2 << 24
+        n < 1 << 24
+    }
+
+    fn get_top_24_bits(n: u32) -> u32 {
+        (n & Self::TOP_24_MASK) >> 8
+    }
+
+    fn get_bottom_8_bits(n: u32) -> u8 {
+        (n & Self::BOTTOM_8_MASK) as u8
     }
 
     fn replace_bits(destination: u32, new_bits: u32, new_bits_mask: u32) -> u32 {
         destination ^ ((destination ^ new_bits) & new_bits_mask)
     }
 
-    /// TODO docs
+    /// Get the instance custom index portion of `self.instance_custom_index_24_and_mask_8`.
+    pub fn instance_custom_index(&self) -> u32 {
+        Self::get_top_24_bits(self.instance_custom_index_24_and_mask_8)
+    }
+
+    /// Set the instance custom index portion of `self.instance_custom_index_24_and_mask_8`.
     pub fn set_instance_custom_index(&mut self, instance_custom_index: u32) {
         assert!(Self::fits_in_24_bits(instance_custom_index));
         self.instance_custom_index_24_and_mask_8 = Self::replace_bits(
             self.instance_custom_index_24_and_mask_8,
             instance_custom_index << 8,
-            TOP_24_MASK,
+            Self::TOP_24_MASK,
         );
     }
 
-    /// TODO docs
+    /// Get the mask portion of `self.instance_custom_index_24_and_mask_8`.
+    pub fn mask(&self) -> u8 {
+        Self::get_bottom_8_bits(self.instance_custom_index_24_and_mask_8)
+    }
+
+    /// Set the mask portion of `self.instance_custom_index_24_and_mask_8`.
     pub fn set_mask(&mut self, mask: u8) {
         self.instance_custom_index_24_and_mask_8 = Self::replace_bits(
             self.instance_custom_index_24_and_mask_8,
             mask as u32,
-            BOTTOM_8_MASK,
+            Self::BOTTOM_8_MASK,
         );
     }
 
-    /// TODO docs
+    /// Get the instance shader binding table record offset portion of `self.instance_shader_binding_table_record_offset_24_and_flags_8`.
+    pub fn instance_shader_binding_table_record_offset(&self) -> u32 {
+        Self::get_top_24_bits(self.instance_shader_binding_table_record_offset_24_and_flags_8)
+    }
+
+    /// Set the instance shader binding table record offset portion of `self.instance_shader_binding_table_record_offset_24_and_flags_8`.
     pub fn set_instance_shader_binding_table_record_offset(
         &mut self,
         instance_shader_binding_table_record_offset: u32,
@@ -382,18 +391,195 @@ impl Instance {
         self.instance_shader_binding_table_record_offset_24_and_flags_8 = Self::replace_bits(
             self.instance_shader_binding_table_record_offset_24_and_flags_8,
             instance_shader_binding_table_record_offset << 8,
-            TOP_24_MASK,
+            Self::TOP_24_MASK,
         );
     }
 
-    /// TODO docs
+    /// Get the flags portion of `self.instance_shader_binding_table_record_offset_24_and_flags_8`.
     pub fn set_flags(&mut self, flags: InstanceFlags) {
         self.instance_shader_binding_table_record_offset_24_and_flags_8 = Self::replace_bits(
             self.instance_shader_binding_table_record_offset_24_and_flags_8,
             flags.bits() as u32,
-            BOTTOM_8_MASK,
+            Self::BOTTOM_8_MASK,
         );
     }
+
+    /// Set the flags portion of `self.instance_shader_binding_table_record_offset_24_and_flags_8`.
+    ///
+    /// If the flags value is not valid (i.e. if it were set directly), returns `Err` with the raw bits.
+    pub fn flags(&self) -> Result<InstanceFlags, u8> {
+        let bits = Self::get_bottom_8_bits(
+            self.instance_shader_binding_table_record_offset_24_and_flags_8,
+        );
+        InstanceFlags::from_bits(bits).ok_or(bits)
+    }
+}
+
+#[cfg(test)]
+mod instance_tests {
+    use super::*;
+
+    #[test]
+    fn debug_fmt() {
+        let mut instance = Instance::new(DeviceAddress(12));
+        instance.set_instance_custom_index(2);
+        instance.set_mask(3);
+        instance.set_instance_shader_binding_table_record_offset(4);
+        instance.set_flags(InstanceFlags::FORCE_OPAQUE);
+
+        assert_eq!(format!("{:?}", instance), "Instance { transform: TransformMatrix([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]]), instance_custom_index: 2, mask: 3, instance_shader_binding_table_record_offset: 4, flags: Ok(FORCE_OPAQUE), acceleration_structure_reference: DeviceAddress(c) }");
+
+        assert_eq!(
+            format!("{:#?}", instance),
+            r"Instance {
+    transform: TransformMatrix(
+        [
+            [
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            [
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+            ],
+            [
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+            ],
+        ],
+    ),
+    instance_custom_index: 2,
+    mask: 3,
+    instance_shader_binding_table_record_offset: 4,
+    flags: Ok(
+        FORCE_OPAQUE,
+    ),
+    acceleration_structure_reference: DeviceAddress(
+        0xc,
+    ),
+}"
+        );
+    }
+
+    #[test]
+    fn simple() {
+        let mut instance = Instance::new(DeviceAddress(1));
+        instance.set_instance_custom_index(2);
+        instance.set_mask(3);
+        instance.set_instance_shader_binding_table_record_offset(4);
+        instance.set_flags(InstanceFlags::FORCE_NO_OPAQUE);
+
+        assert_eq!(instance.acceleration_structure_reference.0, 1);
+        assert_eq!(instance.instance_custom_index(), 2);
+        assert_eq!(instance.mask(), 3);
+        assert_eq!(instance.instance_shader_binding_table_record_offset(), 4);
+        assert_eq!(instance.flags(), Ok(InstanceFlags::FORCE_NO_OPAQUE));
+    }
+
+    #[test]
+    fn flags_getter() {
+        // Ensure that `0xFF` is not a valid value. If it is, `Instance.flags()` doesn't need to return `Result`.
+        assert!(InstanceFlags::from_bits(0xFF).is_none());
+
+        let mut instance = Instance::new(DeviceAddress(1));
+        instance.instance_shader_binding_table_record_offset_24_and_flags_8 = 0xFF;
+        assert_eq!(instance.flags(), Err(0xFF));
+    }
+
+    const LARGEST_24_BIT_NUMBER: u32 = (1 << 24) - 1;
+
+    #[test]
+    fn set_instance_custom_index_largest_value() {
+        let mut instance = Instance::new(DeviceAddress(1));
+        instance.set_instance_custom_index(LARGEST_24_BIT_NUMBER);
+        assert_eq!(instance.instance_custom_index(), LARGEST_24_BIT_NUMBER);
+    }
+
+    #[test]
+    #[should_panic]
+    fn set_instance_custom_index_panic_on_too_large() {
+        Instance::new(DeviceAddress(1)).set_instance_custom_index(LARGEST_24_BIT_NUMBER + 1);
+    }
+
+    #[test]
+    fn set_instance_shader_binding_table_record_offset_largest_value() {
+        let mut instance = Instance::new(DeviceAddress(1));
+        instance.set_instance_shader_binding_table_record_offset(LARGEST_24_BIT_NUMBER);
+        assert_eq!(
+            instance.instance_shader_binding_table_record_offset(),
+            LARGEST_24_BIT_NUMBER
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn set_instance_shader_binding_table_record_offset_panic_on_too_large() {
+        Instance::new(DeviceAddress(1))
+            .set_instance_shader_binding_table_record_offset(LARGEST_24_BIT_NUMBER + 1);
+    }
+}
+
+/// The size requirements describing how big to make the buffers needed to create an acceleration structure.
+#[derive(Debug, Copy, Clone)]
+pub struct SizeRequirements {
+    /// The required size for the acceleration structure buffer.
+    pub acceleration_structure_size: u64,
+    /// The required size for the scratch buffer used in the build step if an incremental update was requested.
+    pub update_scratch_size: u64,
+    /// The required size for the scratch buffer used in the build step.
+    pub build_scratch_size: u64,
+}
+
+/// Denotes how an acceleration structure should be copied.
+#[derive(Debug, Copy, Clone)]
+pub enum CopyMode {
+    /// Creates a copy of the source acceleration structure to the destination. Both must have been created with the same parameters.
+    Copy,
+    /// Creates a more compact version of the source acceleration structure into the destination. The destination acceleration structure must be at least large enough, as queried by `query::Type::AccelerationStructureCompactedSize`.
+    Compact,
+}
+
+/// Indexes and offsets into a [`GeometryDesc`] from which an acceleration structure should be built.
+#[derive(Debug)]
+#[repr(C)]
+pub struct BuildRangeDesc {
+    /// The number of primitives for the given acceleration structure.
+    ///
+    /// - For [`GeometryTriangles`], this refers to the number of triangles to be built.
+    /// - For [`GeometryAabbs`], this refers to the number of bounding boxes to be built.
+    /// - For [`GeometryInstances`], this refers to the number of instances to be built.
+    pub primitive_count: u32,
+    /// The offset in bytes into the memory where the primitives are defined.
+    ///
+    /// - For [`GeometryTriangles`]
+    ///   - If indices are used, this must be a multiple of the index type size.
+    ///   - If not, this must be a multiple of the component size of the vertex format.
+    /// - For [`GeometryAabbs`], this must be a multiple of 8.
+    /// - For [`GeometryInstances`], this must be a multiple of 16.
+    pub primitive_offset: u32,
+    /// The index of the first triangle to build from.
+    ///
+    /// Only used by [`GeometryTriangles`].
+    pub first_vertex: u32,
+    /// The offset in bytes into the memory where the transform is defined from which a single transformation matrix will be read. It must be a multiple of 16.
+    ///
+    /// Only used by [`GeometryTriangles`].
+    pub transform_offset: u32,
+}
+
+/// Serialized acceleration structure compatibility.
+#[derive(Debug)]
+pub enum Compatibility {
+    /// The serialized acceleration structure is compatible with the current device.
+    Compatible,
+    /// The serialized acceleration structure is not compatible with the current device.
+    Incompatible,
 }
 
 #[cfg(test)]
@@ -423,50 +609,4 @@ mod struct_size_tests {
         assert_eq!(std::mem::size_of::<BuildRangeDesc>(), 16);
         assert_eq!(std::mem::size_of::<[BuildRangeDesc; 2]>(), 32);
     }
-}
-
-/// The size requirements describing how big to make the buffers needed to create an acceleration structure.
-#[derive(Debug, Copy, Clone)]
-pub struct SizeRequirements {
-    /// The required size for the acceleration structure buffer.
-    pub acceleration_structure_size: u64,
-    /// The required size for the scratch buffer used in the build step if an incremental update was requested.
-    pub update_scratch_size: u64,
-    /// The required size for the scratch buffer used in the build step.
-    pub build_scratch_size: u64,
-}
-
-/// Denotes how an acceleration structure should be copied.
-#[derive(Debug, Copy, Clone)]
-pub enum CopyMode {
-    /// Creates a copy of the source acceleration structure to the destination. Both must have been created with the same parameters.
-    Copy,
-    /// Creates a more compact version of the source acceleration structure into the destination. The destination acceleration structure must be at least large enough, as queried by `query::Type::AccelerationStructureCompactedSize`.
-    Compact,
-}
-
-/// TODO better docs, read notes from https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#VkAccelerationStructureBuildRangeInfoKHR
-/// TODO `build_acceleration_structures_indirect` depends on the layout of this struct
-#[derive(Debug)]
-#[repr(C)]
-pub struct BuildRangeDesc {
-    // The range of primitives in the corresponding geometry to use for this acceleration structure build.
-    /// TODO docs
-    pub primitive_count: u32,
-    /// TODO docs
-    pub primitive_offset: u32,
-    /// The index of the first vertex to use, in the case of a triangles geometry.
-    // TODO is this not just primitive.start?
-    pub first_vertex: u32,
-    /// The additional offset into the transform buffer, in the case of a triangles geometry.
-    pub transform_offset: u32,
-}
-
-/// Serialized acceleration structure compatibility.
-#[derive(Debug)]
-pub enum Compatibility {
-    /// The serialized acceleration structure is compatible with the current device.
-    Compatible,
-    /// The serialized acceleration structure is not compatible with the current device.
-    Incompatible,
 }
