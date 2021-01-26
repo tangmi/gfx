@@ -1843,14 +1843,14 @@ impl d::Device<B> for Device {
 
     unsafe fn get_acceleration_structure_build_requirements(
         &self,
-        build_info: &hal::acceleration_structure::GeometryDesc<B>,
-        max_primitives_counts: &[u32],
+        desc: &hal::acceleration_structure::GeometryDesc<B>,
+        max_primitive_counts: &[u32],
     ) -> hal::acceleration_structure::SizeRequirements {
         let build_info = vk::AccelerationStructureBuildGeometryInfoKHR::builder()
-            .ty(conv::map_acceleration_structure_type(build_info.ty))
-            .flags(conv::map_acceleration_structure_flags(build_info.flags))
+            .ty(conv::map_acceleration_structure_type(desc.ty))
+            .flags(conv::map_acceleration_structure_flags(desc.flags))
             .geometries(
-                build_info
+                desc
                     .geometries
                     .iter()
                     .map(|&geometry| conv::map_geometry(&self.shared, geometry))
@@ -1872,7 +1872,7 @@ impl d::Device<B> for Device {
                 self.shared.raw.handle(),
                 vk::AccelerationStructureBuildTypeKHR::DEVICE,
                 &build_info,
-                max_primitives_counts,
+                max_primitive_counts,
             );
 
         hal::acceleration_structure::SizeRequirements {

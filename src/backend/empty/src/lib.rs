@@ -451,39 +451,6 @@ impl device::Device<Backend> for Device {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
-    unsafe fn create_acceleration_structure(
-        &self,
-        _desc: &hal::acceleration_structure::CreateDesc<Backend>,
-    ) -> Result<(), device::OutOfMemory> {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
-    unsafe fn destroy_acceleration_structure(&self, _accel_struct: ()) {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
-    unsafe fn get_acceleration_structure_build_requirements(
-        &self,
-        _build_info: &hal::acceleration_structure::GeometryDesc<Backend>,
-        _max_primitives_count: &[u32],
-    ) -> hal::acceleration_structure::SizeRequirements {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
-    unsafe fn get_acceleration_structure_address(
-        &self,
-        _accel_struct: &(),
-    ) -> hal::acceleration_structure::DeviceAddress {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
-    unsafe fn get_device_acceleration_structure_compatibility(
-        &self,
-        _version_header: &[u8; 32],
-    ) -> hal::acceleration_structure::Compatibility {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
     unsafe fn map_memory(
         &self,
         memory: &mut Memory,
@@ -590,10 +557,6 @@ impl device::Device<Backend> for Device {
     }
 
     unsafe fn set_pipeline_layout_name(&self, _pipeline_layout: &mut (), _name: &str) {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
-    unsafe fn set_acceleration_structure_name(&self, _accel_struct: &mut (), name: &str) {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
@@ -957,62 +920,6 @@ impl command::CommandBuffer<Backend> for CommandBuffer {
     }
 
     unsafe fn write_timestamp(&mut self, _: pso::PipelineStage, _: query::Query<Backend>) {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
-    unsafe fn build_acceleration_structure<'a>(
-        &self,
-        _desc: &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
-        _ranges: &'a [hal::acceleration_structure::BuildRangeDesc],
-    ) {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
-    unsafe fn build_acceleration_structure_indirect<'a>(
-        &self,
-        _desc: &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
-        _buffer: &'a Buffer,
-        _offset: hal::buffer::Offset,
-        _stride: hal::buffer::Stride,
-        _max_primitive_counts: &'a [u32],
-    ) {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
-    unsafe fn copy_acceleration_structure(
-        &self,
-        _src: &(),
-        _dst: &(),
-        _mode: hal::acceleration_structure::CopyMode,
-    ) {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
-    unsafe fn serialize_acceleration_structure_to_memory(
-        &self,
-        _src: &(),
-        _dst_buffer: &Buffer,
-        _dst_offset: hal::buffer::Offset,
-    ) {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
-    unsafe fn deserialize_memory_to_acceleration_structure(
-        &self,
-        _src_buffer: &Buffer,
-        _src_offset: hal::buffer::Offset,
-        _dst: &(),
-    ) {
-        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
-    }
-
-    unsafe fn write_acceleration_structures_properties(
-        &self,
-        _accel_structs: &[&()],
-        _query_type: query::Type,
-        _pool: &(),
-        _first_query: u32,
-    ) {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 

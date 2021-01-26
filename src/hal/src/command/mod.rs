@@ -605,55 +605,66 @@ pub trait CommandBuffer<B: Backend>: fmt::Debug + Any + Send + Sync {
     /// `ranges` must contain a number of entries equal to the number of geometries described in `desc`.
     unsafe fn build_acceleration_structure<'a>(
         &self,
-        desc: &'a acceleration_structure::BuildDesc<'a, B>,
-        // BuildRangeDesc array len must equal BuildDesc.geometry.geometries' len
-        ranges: &'a [acceleration_structure::BuildRangeDesc],
-    );
+        _desc: &'a acceleration_structure::BuildDesc<'a, B>,
+        _ranges: &'a [acceleration_structure::BuildRangeDesc],
+    ) {
+        unimplemented!()
+    }
 
     /// Functions identically to `build_acceleration_structure()`, except the parameters are read from the given buffer, starting at `offset` and increasing `stride` bytes for each geometry in `desc`.
     ///
     /// `max_primitive_counts` must contain a number of entries equal to the number of geometries described in `desc`.
     unsafe fn build_acceleration_structure_indirect<'a>(
         &self,
-        desc: &'a acceleration_structure::BuildDesc<'a, B>,
-        buffer: &'a B::Buffer,
-        offset: buffer::Offset,
-        stride: buffer::Stride,
-        max_primitive_counts: &'a [u32],
-    );
+        _desc: &'a acceleration_structure::BuildDesc<'a, B>,
+        _buffer: &'a B::Buffer,
+        _offset: buffer::Offset,
+        _stride: buffer::Stride,
+        _max_primitive_counts: &'a [u32],
+    ) {
+        unimplemented!()
+    }
 
     /// Copy an acceleration structure from `src` to `dst`.
     unsafe fn copy_acceleration_structure(
         &self,
-        src: &B::AccelerationStructure,
-        dst: &B::AccelerationStructure,
-        mode: acceleration_structure::CopyMode,
-    );
+        _src: &B::AccelerationStructure,
+        _dst: &B::AccelerationStructure,
+        _mode: acceleration_structure::CopyMode,
+    ) {
+        unimplemented!()
+    }
 
     /// Serialize acceleration structure from `src` to `dst`.
     unsafe fn serialize_acceleration_structure_to_memory(
         &self,
-        src: &B::AccelerationStructure,
-        dst_buffer: &B::Buffer,
-        dst_offset: buffer::Offset,
-    );
+        _src: &B::AccelerationStructure,
+        _dst_buffer: &B::Buffer,
+        _dst_offset: buffer::Offset,
+    ) {
+        unimplemented!()
+    }
 
     /// Deserialize acceleration structure from `src` to `dst`.
     unsafe fn deserialize_memory_to_acceleration_structure(
         &self,
-        src_buffer: &B::Buffer,
-        src_offset: buffer::Offset,
-        dst: &B::AccelerationStructure,
-    );
+        _src_buffer: &B::Buffer,
+        _src_offset: buffer::Offset,
+        _dst: &B::AccelerationStructure,
+    ) {
+        unimplemented!()
+    }
 
-    /// Write some property
+    /// Write some property `query_type` about `accel_structs` to `pool`.
     unsafe fn write_acceleration_structures_properties(
         &self,
-        accel_structs: &[&B::AccelerationStructure],
-        query_type: query::Type,
-        pool: &B::QueryPool,
-        first_query: u32,
-    );
+        _accel_structs: &[&B::AccelerationStructure],
+        _query_type: query::Type,
+        _pool: &B::QueryPool,
+        _first_query: u32,
+    ) {
+        unimplemented!()
+    }
 
     /// Modify constant data in a graphics pipeline. Push constants are intended to modify data in a
     /// pipeline more quickly than a updating the values inside a descriptor set.

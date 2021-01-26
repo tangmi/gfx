@@ -681,26 +681,35 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
     /// Create an acceleration structure object.
     unsafe fn create_acceleration_structure(
         &self,
-        desc: &acceleration_structure::CreateDesc<B>,
-    ) -> Result<B::AccelerationStructure, OutOfMemory>;
+        _desc: &acceleration_structure::CreateDesc<B>,
+    ) -> Result<B::AccelerationStructure, OutOfMemory> {
+        unimplemented!()
+    }
 
     /// Destroy an acceleration structure object.
-    unsafe fn destroy_acceleration_structure(&self, accel_struct: B::AccelerationStructure);
+    unsafe fn destroy_acceleration_structure(&self, _accel_struct: B::AccelerationStructure) {
+        unimplemented!()
+    }
 
     /// Get the size requirements for the buffers needed to build an acceleration structure.
+    ///
+    /// `max_primitive_counts` must contain a number of entries equal to the number of geometries described in `desc`.
+    // TODO(host-commands): build_type: acceleration_structure::HostOrDevice,
     unsafe fn get_acceleration_structure_build_requirements(
         &self,
-        // TODO(host-commands): build_type: acceleration_structure::HostOrDevice,
-        build_info: &acceleration_structure::GeometryDesc<B>,
-        // must be a parallel array to `build_info.geometries` containing the primitive counts for each geometry.
-        max_primitives_counts: &[u32],
-    ) -> acceleration_structure::SizeRequirements;
+        _desc: &acceleration_structure::GeometryDesc<B>,
+        _max_primitive_counts: &[u32],
+    ) -> acceleration_structure::SizeRequirements {
+        unimplemented!()
+    }
 
     /// Get the device address of a bottom-level acceleration structure for use in top-level acceleration structures `acceleration_structure::Instance`s.
     unsafe fn get_acceleration_structure_address(
         &self,
-        accel_struct: &B::AccelerationStructure,
-    ) -> acceleration_structure::DeviceAddress;
+        _accel_struct: &B::AccelerationStructure,
+    ) -> acceleration_structure::DeviceAddress {
+        unimplemented!()
+    }
 
     // TODO(host-commands)
     // TODO(cpu-repr)
@@ -715,8 +724,10 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
     /// `version_header` is the first 32 bytes of a serialized acceleration struct. If you have a `&[u8]` from loading an acceleration structure, consider using `try_into()` to convert to `&[u8; 32]`.
     unsafe fn get_device_acceleration_structure_compatibility(
         &self,
-        version_header: &[u8; 32],
-    ) -> acceleration_structure::Compatibility;
+        _version_header: &[u8; 32],
+    ) -> acceleration_structure::Compatibility {
+        unimplemented!()
+    }
 
     /// Wait for all queues associated with this device to idle.
     ///
@@ -762,7 +773,9 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
     /// validation layers that can print a friendly name when referring to objects in error messages
     unsafe fn set_acceleration_structure_name(
         &self,
-        accel_struct: &mut B::AccelerationStructure,
-        name: &str,
-    );
+        _accel_struct: &mut B::AccelerationStructure,
+        _name: &str,
+    ) {
+        unimplemented!()
+    }
 }
