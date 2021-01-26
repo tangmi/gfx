@@ -3,6 +3,7 @@ use crate::native as n;
 use ash::vk;
 
 use hal::{
+    acceleration_structure::InstanceFlags,
     buffer, command, format, image,
     memory::Segment,
     pass, pso, query,
@@ -798,26 +799,48 @@ pub fn map_acceleration_structure_copy_mode(
 pub fn map_acceleration_structure_flags(
     accel_flags: hal::acceleration_structure::Flags,
 ) -> vk::BuildAccelerationStructureFlagsKHR {
-    use hal::acceleration_structure::Flags;
     let mut flags = vk::BuildAccelerationStructureFlagsKHR::empty();
-
-    if accel_flags.contains(Flags::ALLOW_UPDATE) {
+    if accel_flags.contains(hal::acceleration_structure::Flags::ALLOW_UPDATE) {
         flags |= vk::BuildAccelerationStructureFlagsKHR::ALLOW_UPDATE;
     }
-    if accel_flags.contains(Flags::ALLOW_COMPACTION) {
+    if accel_flags.contains(hal::acceleration_structure::Flags::ALLOW_COMPACTION) {
         flags |= vk::BuildAccelerationStructureFlagsKHR::ALLOW_COMPACTION;
     }
-    if accel_flags.contains(Flags::PREFER_FAST_TRACE) {
+    if accel_flags.contains(hal::acceleration_structure::Flags::PREFER_FAST_TRACE) {
         flags |= vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_TRACE;
     }
-    if accel_flags.contains(Flags::PREFER_FAST_BUILD) {
+    if accel_flags.contains(hal::acceleration_structure::Flags::PREFER_FAST_BUILD) {
         flags |= vk::BuildAccelerationStructureFlagsKHR::PREFER_FAST_BUILD;
     }
-    if accel_flags.contains(Flags::LOW_MEMORY) {
+    if accel_flags.contains(hal::acceleration_structure::Flags::LOW_MEMORY) {
         flags |= vk::BuildAccelerationStructureFlagsKHR::LOW_MEMORY;
     }
-
     flags
+}
+
+pub fn map_geometry_flags(
+    geometry_flags: hal::acceleration_structure::GeometryFlags,
+) -> vk::GeometryFlagsKHR {
+    let mut flags = vk::GeometryFlagsKHR::empty();
+    if geometry_flags.contains(hal::acceleration_structure::GeometryFlags::OPAQUE) {
+        flags |= vk::GeometryFlagsKHR::OPAQUE;
+    }
+    if geometry_flags
+        .contains(hal::acceleration_structure::GeometryFlags::NO_DUPLICATE_ANY_HIT_INVOCATION)
+    {
+        flags |= vk::GeometryFlagsKHR::NO_DUPLICATE_ANY_HIT_INVOCATION;
+    }
+    flags
+}
+
+pub fn map_geometry_type(
+    geometry_data: &hal::acceleration_structure::GeometryData<crate::Backend>,
+) -> vk::GeometryTypeKHR {
+    match geometry_data {
+        hal::acceleration_structure::GeometryData::Triangles(_) => vk::GeometryTypeKHR::TRIANGLES,
+        hal::acceleration_structure::GeometryData::Aabbs(_) => vk::GeometryTypeKHR::AABBS,
+        hal::acceleration_structure::GeometryData::Instances(_) => vk::GeometryTypeKHR::INSTANCES,
+    }
 }
 
 pub unsafe fn map_geometry(
@@ -825,15 +848,7 @@ pub unsafe fn map_geometry(
     geometry: &hal::acceleration_structure::Geometry<crate::Backend>,
 ) -> vk::AccelerationStructureGeometryKHR {
     vk::AccelerationStructureGeometryKHR::builder()
-        .geometry_type(match geometry.geometry {
-            hal::acceleration_structure::GeometryData::Triangles(_) => {
-                vk::GeometryTypeKHR::TRIANGLES
-            }
-            hal::acceleration_structure::GeometryData::Aabbs(_) => vk::GeometryTypeKHR::AABBS,
-            hal::acceleration_structure::GeometryData::Instances(_) => {
-                vk::GeometryTypeKHR::INSTANCES
-            }
-        })
+        .geometry_type(map_geometry_type(&geometry.geometry))
         .geometry(match geometry.geometry {
             hal::acceleration_structure::GeometryData::Triangles(ref triangles) => {
                 vk::AccelerationStructureGeometryDataKHR {
@@ -899,20 +914,34 @@ pub unsafe fn map_geometry(
                 }
             }
         })
-        .flags({
-            let mut flags = vk::GeometryFlagsKHR::empty();
-            if geometry
-                .flags
-                .contains(hal::acceleration_structure::GeometryFlags::OPAQUE)
-            {
-                flags |= vk::GeometryFlagsKHR::OPAQUE;
-            }
-            if geometry.flags.contains(
-                hal::acceleration_structure::GeometryFlags::NO_DUPLICATE_ANY_HIT_INVOCATION,
-            ) {
-                flags |= vk::GeometryFlagsKHR::NO_DUPLICATE_ANY_HIT_INVOCATION;
-            }
-            flags
+        .flags(map_geometry_flags(geometry.flags))
+        .build()
+}
+
+pub unsafe fn map_geometry_info(
+    device: &crate::RawDevice,
+    desc: &hal::acceleration_structure::BuildDesc<crate::Backend>,
+) -> vk::AccelerationStructureBuildGeometryInfoKHR {
+    vk::AccelerationStructureBuildGeometryInfoKHR::builder()
+        .ty(map_acceleration_structure_type(desc.geometry.ty))
+        .flags(map_acceleration_structure_flags(desc.geometry.flags))
+        .mode(if desc.src.is_some() {
+            vk::BuildAccelerationStructureModeKHR::UPDATE
+        } else {
+            vk::BuildAccelerationStructureModeKHR::BUILD
+        })
+        .src_acceleration_structure(desc.src.map(|a| a.0).unwrap_or_default())
+        .dst_acceleration_structure(desc.dst.0)
+        .geometries(
+            desc.geometry
+                .geometries
+                .iter()
+                .map(|&geometry| map_geometry(device, geometry))
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+        .scratch_data(vk::DeviceOrHostAddressKHR {
+            device_address: device.get_buffer_device_address(desc.scratch, desc.scratch_offset),
         })
         .build()
 }

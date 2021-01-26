@@ -1808,7 +1808,7 @@ impl d::Device<B> for Device {
             .extension_fns
             .acceleration_structure
             .as_ref()
-            .expect("TODO msg")
+            .expect("Feature ACCELERATION_STRUCTURE must be enabled to call create_acceleration_structure")
             .create_acceleration_structure(
                 &vk::AccelerationStructureCreateInfoKHR::builder()
                     .buffer(desc.buffer.raw)
@@ -1891,7 +1891,7 @@ impl d::Device<B> for Device {
                 .extension_fns
                 .acceleration_structure
                 .as_ref()
-                .expect("TODO msg")
+                .expect("Feature ACCELERATION_STRUCTURE must be enabled to call get_acceleration_structure_address")
                 .get_acceleration_structure_device_address(
                     self.shared.raw.handle(),
                     &vk::AccelerationStructureDeviceAddressInfoKHR::builder()
@@ -1910,7 +1910,7 @@ impl d::Device<B> for Device {
             .extension_fns
             .acceleration_structure
             .as_ref()
-            .expect("TODO msg")
+            .expect("Feature ACCELERATION_STRUCTURE must be enabled to call get_device_acceleration_structure_compatibility")
             .get_device_acceleration_structure_compatibility(
                 self.shared.raw.handle(),
                 &vk::AccelerationStructureVersionInfoKHR::builder()
@@ -2010,7 +2010,7 @@ impl d::Device<B> for Device {
             .extension_fns
             .acceleration_structure
             .as_ref()
-            .expect("TODO msg")
+            .expect("Feature ACCELERATION_STRUCTURE must be enabled to call destroy_acceleration_structure")
             .destroy_acceleration_structure(accel_struct.0, None);
     }
 

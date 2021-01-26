@@ -29,8 +29,6 @@ pub struct CreateDesc<'a, B: Backend> {
     pub buffer_offset: Offset,
 
     /// The size required for the acceleration structure.
-    ///
-    /// TODO additional notes on where to get this size for build vs compacting
     pub size: u64,
 
     /// The type of acceleration structure to build.
@@ -151,7 +149,7 @@ pub struct GeometryTriangles<'a, B: Backend> {
     pub vertex_buffer_stride: Stride,
 
     /// The index of the last vertex addressed by a build command using this geometry.
-    pub max_vertex: Offset, // TODO vulkan api takes u32
+    pub max_vertex: Offset,
 
     // TODO(cpu-repr)
     /// The buffer and offset containing the index data and the type of the indices.
@@ -197,7 +195,6 @@ pub struct GeometryAabbs<'a, B: Backend> {
 }
 
 /// An axis-aligned bounding box.
-// TODO `GeometryAabbs::buffer` depends on the layout of this struct
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct AabbPositions {

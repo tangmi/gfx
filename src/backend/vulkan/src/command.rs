@@ -1064,42 +1064,19 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
         desc: &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
         ranges: &'a [hal::acceleration_structure::BuildRangeDesc],
     ) {
-        let info = vk::AccelerationStructureBuildGeometryInfoKHR::builder()
-            .ty(conv::map_acceleration_structure_type(desc.geometry.ty))
-            .flags(conv::map_acceleration_structure_flags(desc.geometry.flags))
-            .mode(if desc.src.is_some() {
-                vk::BuildAccelerationStructureModeKHR::UPDATE
-            } else {
-                vk::BuildAccelerationStructureModeKHR::BUILD
-            })
-            .src_acceleration_structure(desc.src.map(|a| a.0).unwrap_or_default())
-            .dst_acceleration_structure(desc.dst.0)
-            .geometries(
-                desc.geometry
-                    .geometries
-                    .iter()
-                    .map(|&geometry| conv::map_geometry(&self.device, geometry))
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            )
-            .scratch_data(vk::DeviceOrHostAddressKHR {
-                device_address: self
-                    .device
-                    .get_buffer_device_address(desc.scratch, desc.scratch_offset),
-            })
-            .build();
-
-        let build_range_infos = mem::transmute::<
-            &[hal::acceleration_structure::BuildRangeDesc],
-            &[vk::AccelerationStructureBuildRangeInfoKHR],
-        >(ranges);
-
         self.device
             .extension_fns
             .acceleration_structure
             .as_ref()
-            .expect("TODO msg")
-            .cmd_build_acceleration_structures(self.raw, &[info], &[build_range_infos]);
+            .expect("Feature ACCELERATION_STRUCTURE must be enabled to call build_acceleration_structure")
+            .cmd_build_acceleration_structures(
+                self.raw,
+                &[conv::map_geometry_info(&self.device, desc)],
+                &[mem::transmute::<
+                    &[hal::acceleration_structure::BuildRangeDesc],
+                    &[vk::AccelerationStructureBuildRangeInfoKHR],
+                >(ranges)],
+            );
     }
 
     unsafe fn build_acceleration_structure_indirect<'a>(
@@ -1110,19 +1087,18 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
         stride: buffer::Stride,
         max_primitive_counts: &'a [u32],
     ) {
-        // self.device
-        //     .extension_fns
-        //     .acceleration_structure
-        //     .as_ref()
-        //     .expect("TODO msg")
-        //     .cmd_build_acceleration_structures_indirect(
-        //         self.raw,
-        //         &[vk::AccelerationStructureBuildGeometryInfoKHR::builder().build()],
-        //         &[self.device.get_buffer_device_address(buffer, offset)],
-        //         &[stride],
-        //         &[max_primitive_counts],
-        //     );
-        todo!()
+        self.device
+            .extension_fns
+            .acceleration_structure
+            .as_ref()
+            .expect("Feature ACCELERATION_STRUCTURE must be enabled to call build_acceleration_structure_indirect")
+            .cmd_build_acceleration_structures_indirect(
+                self.raw,
+                &[conv::map_geometry_info(&self.device, desc)],
+                &[self.device.get_buffer_device_address(buffer, offset)],
+                &[stride],
+                &max_primitive_counts.iter().collect::<Vec<_>>(),
+            );
     }
 
     unsafe fn copy_acceleration_structure(
@@ -1135,7 +1111,7 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
             .extension_fns
             .acceleration_structure
             .as_ref()
-            .expect("TODO msg")
+            .expect("Feature ACCELERATION_STRUCTURE must be enabled to call copy_acceleration_structure")
             .cmd_copy_acceleration_structure(
                 self.raw,
                 &vk::CopyAccelerationStructureInfoKHR::builder()
@@ -1156,7 +1132,7 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
             .extension_fns
             .acceleration_structure
             .as_ref()
-            .expect("TODO msg")
+            .expect("Feature ACCELERATION_STRUCTURE must be enabled to call serialize_acceleration_structure_to_memory")
             .cmd_copy_acceleration_structure_to_memory(
                 self.raw,
                 &vk::CopyAccelerationStructureToMemoryInfoKHR::builder()
@@ -1181,7 +1157,7 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
             .extension_fns
             .acceleration_structure
             .as_ref()
-            .expect("TODO msg")
+            .expect("Feature ACCELERATION_STRUCTURE must be enabled to call deserialize_memory_to_acceleration_structure")
             .cmd_copy_memory_to_acceleration_structure(
                 self.raw,
                 &vk::CopyMemoryToAccelerationStructureInfoKHR::builder()
@@ -1207,7 +1183,7 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
             .extension_fns
             .acceleration_structure
             .as_ref()
-            .expect("TODO msg")
+            .expect("Feature ACCELERATION_STRUCTURE must be enabled to call write_acceleration_structures_properties")
             .cmd_write_acceleration_structures_properties(
                 self.raw,
                 accel_structs
@@ -1223,7 +1199,7 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
                         vk::QueryType::ACCELERATION_STRUCTURE_SERIALIZATION_SIZE_KHR
                     }
                     _ => {
-                        panic!("TODO error msg?")
+                        panic!("Unsupported query type")
                     }
                 },
                 pool.0,
