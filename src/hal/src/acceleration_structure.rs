@@ -114,14 +114,14 @@ pub struct Geometry<'a, B: Backend> {
     pub geometry: GeometryData<'a, B>,
 }
 
-///
+/// TODO docs
 #[derive(Debug)]
 pub enum GeometryData<'a, B: Backend> {
-    ///
+    /// TODO docs
     Triangles(GeometryTriangles<'a, B>),
-    ///
+    /// TODO docs
     Aabbs(GeometryAabbs<'a, B>),
-    ///
+    /// TODO docs
     Instances(GeometryInstances<'a, B>),
 }
 
