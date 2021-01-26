@@ -290,7 +290,7 @@ fn main() {
             let mut cmd_buffer = command_pool.allocate_one(command::Level::Primary);
             cmd_buffer.begin_primary(command::CommandBufferFlags::ONE_TIME_SUBMIT);
 
-            cmd_buffer.build_acceleration_structures(&[(
+            cmd_buffer.build_acceleration_structure(
                 &accel::BuildDesc {
                     src: None,
                     dst: &teapot_blas.accel_struct,
@@ -304,16 +304,16 @@ fn main() {
                     first_vertex: 0,
                     transform_offset: 0,
                 }][..],
-            )]);
+            );
 
             cmd_buffer.pipeline_barrier(
                 pso::PipelineStage::ACCELERATION_STRUCTURE_BUILD
                     ..pso::PipelineStage::ACCELERATION_STRUCTURE_BUILD,
                 memory::Dependencies::empty(),
-                &[memory::Barrier::AllBuffers(
+                iter::once(memory::Barrier::AllBuffers(
                     buffer::Access::ACCELERATION_STRUCTURE_WRITE
                         ..buffer::Access::ACCELERATION_STRUCTURE_READ,
-                )],
+                )),
             );
 
             cmd_buffer.write_acceleration_structures_properties(
@@ -332,8 +332,12 @@ fn main() {
 
             cmd_buffer.finish();
 
-            queue_group.queues[0]
-                .submit_without_semaphores(Some(&cmd_buffer), Some(&mut build_fence));
+            queue_group.queues[0].submit(
+                iter::once(&cmd_buffer),
+                iter::empty(),
+                iter::empty(),
+                Some(&mut build_fence),
+            );
 
             device
                 .wait_for_fence(&build_fence, !0)
@@ -413,8 +417,12 @@ fn main() {
 
                 cmd_buffer.finish();
 
-                queue_group.queues[0]
-                    .submit_without_semaphores(Some(&cmd_buffer), Some(&mut build_fence));
+                queue_group.queues[0].submit(
+                    iter::once(&cmd_buffer),
+                    iter::empty(),
+                    iter::empty(),
+                    Some(&mut build_fence),
+                );
 
                 device
                     .wait_for_fence(&build_fence, !0)
@@ -508,7 +516,7 @@ fn main() {
             let mut cmd_buffer = command_pool.allocate_one(command::Level::Primary);
             cmd_buffer.begin_primary(command::CommandBufferFlags::ONE_TIME_SUBMIT);
 
-            cmd_buffer.build_acceleration_structures(&[(
+            cmd_buffer.build_acceleration_structure(
                 &accel::BuildDesc {
                     src: None,
                     dst: &tlas.accel_struct,
@@ -522,16 +530,16 @@ fn main() {
                     first_vertex: 0,
                     transform_offset: 0,
                 }][..],
-            )]);
+            );
 
             cmd_buffer.pipeline_barrier(
                 pso::PipelineStage::ACCELERATION_STRUCTURE_BUILD
                     ..pso::PipelineStage::ACCELERATION_STRUCTURE_BUILD,
                 memory::Dependencies::empty(),
-                &[memory::Barrier::AllBuffers(
+                iter::once(memory::Barrier::AllBuffers(
                     buffer::Access::ACCELERATION_STRUCTURE_WRITE
                         ..buffer::Access::ACCELERATION_STRUCTURE_READ,
-                )],
+                )),
             );
 
             cmd_buffer.write_acceleration_structures_properties(
@@ -550,8 +558,12 @@ fn main() {
 
             cmd_buffer.finish();
 
-            queue_group.queues[0]
-                .submit_without_semaphores(Some(&cmd_buffer), Some(&mut build_fence));
+            queue_group.queues[0].submit(
+                iter::once(&cmd_buffer),
+                iter::empty(),
+                iter::empty(),
+                Some(&mut build_fence),
+            );
 
             device
                 .wait_for_fence(&build_fence, !0)
@@ -594,27 +606,27 @@ fn main() {
             let mut descriptor_pool = device
                 .create_descriptor_pool(
                     1,
-                    &[pso::DescriptorRangeDesc {
+                    iter::once(pso::DescriptorRangeDesc {
                         ty: pso::DescriptorType::AccelerationStructure,
                         count: 1,
-                    }],
+                    }),
                     pso::DescriptorPoolCreateFlags::empty(),
                 )
                 .unwrap();
 
             let layout = device
                 .create_descriptor_set_layout(
-                    &[pso::DescriptorSetLayoutBinding {
+                    iter::once(pso::DescriptorSetLayoutBinding {
                         binding: 0,
                         ty: pso::DescriptorType::AccelerationStructure,
                         count: 1,
                         stage_flags: pso::ShaderStageFlags::ALL,
                         immutable_samplers: false,
-                    }],
-                    &[],
+                    }),
+                    iter::empty(),
                 )
                 .unwrap();
-            let mut descriptor_set = descriptor_pool.allocate_set(&layout).unwrap();
+            let mut descriptor_set = descriptor_pool.allocate_one(&layout).unwrap();
 
             device.write_descriptor_set(pso::DescriptorSetWrite {
                 set: &mut descriptor_set,

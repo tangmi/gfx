@@ -600,37 +600,29 @@ pub trait CommandBuffer<B: Backend>: fmt::Debug + Any + Send + Sync {
     /// Requests a timestamp to be written.
     unsafe fn write_timestamp(&mut self, stage: pso::PipelineStage, query: query::Query<B>);
 
-    /// TODO docs
-    unsafe fn build_acceleration_structures<'a, I>(&self, descs: I)
-    where
-        I: IntoIterator<
-            Item = &'a (
-                &'a acceleration_structure::BuildDesc<'a, B>,
-                // BuildRangeDesc array len must equal BuildDesc.geometry.geometries' len
-                &'a [acceleration_structure::BuildRangeDesc],
-            ),
-        >,
-        I::IntoIter: ExactSizeIterator;
-
-    /// Indirect version of `build_acceleration_structures`.
+    /// Build an acceleration structure.
     ///
-    /// TODO better docs
-    unsafe fn build_acceleration_structures_indirect<'a, I>(&self, descs: I)
-    where
-        I: IntoIterator<
-            Item = &'a (
-                &'a acceleration_structure::BuildDesc<'a, B>,
-                // `indirect_device_address` is a buffer device address that points to BuildDesc.geometry.geometries.len() BuildRangeDesc structures defining dynamic offsets to the addresses where geometry data is stored, as defined by BuildDesc.
-                &'a B::Buffer,
-                buffer::Offset,
-                buffer::Stride,
-                // max_primitive_counts is an array of BuildDesc.geometry.geometries.len() values indicating the maximum number of primitives that will be built by this command for each geometry.
-                &'a [u32],
-            ),
-        >,
-        I::IntoIter: ExactSizeIterator;
+    /// `ranges` must contain a number of entries equal to the number of geometries described in `desc`.
+    unsafe fn build_acceleration_structure<'a>(
+        &self,
+        desc: &'a acceleration_structure::BuildDesc<'a, B>,
+        // BuildRangeDesc array len must equal BuildDesc.geometry.geometries' len
+        ranges: &'a [acceleration_structure::BuildRangeDesc],
+    );
 
-    /// TODO docs
+    /// Functions identically to `build_acceleration_structure()`, except the parameters are read from the given buffer, starting at `offset` and increasing `stride` bytes for each geometry in `desc`.
+    ///
+    /// `max_primitive_counts` must contain a number of entries equal to the number of geometries described in `desc`.
+    unsafe fn build_acceleration_structure_indirect<'a>(
+        &self,
+        desc: &'a acceleration_structure::BuildDesc<'a, B>,
+        buffer: &'a B::Buffer,
+        offset: buffer::Offset,
+        stride: buffer::Stride,
+        max_primitive_counts: &'a [u32],
+    );
+
+    /// Copy an acceleration structure from `src` to `dst`.
     unsafe fn copy_acceleration_structure(
         &self,
         src: &B::AccelerationStructure,
@@ -638,27 +630,23 @@ pub trait CommandBuffer<B: Backend>: fmt::Debug + Any + Send + Sync {
         mode: acceleration_structure::CopyMode,
     );
 
-    /// TODO docs
-    unsafe fn copy_acceleration_structure_to_memory(
+    /// Serialize acceleration structure from `src` to `dst`.
+    unsafe fn serialize_acceleration_structure_to_memory(
         &self,
         src: &B::AccelerationStructure,
-        // TODO(cpu-repr)
         dst_buffer: &B::Buffer,
         dst_offset: buffer::Offset,
-        mode: acceleration_structure::CopyMode,
     );
 
-    /// TODO docs
-    unsafe fn copy_memory_to_acceleration_structure(
+    /// Deserialize acceleration structure from `src` to `dst`.
+    unsafe fn deserialize_memory_to_acceleration_structure(
         &self,
-        // TODO(cpu-repr)
         src_buffer: &B::Buffer,
         src_offset: buffer::Offset,
         dst: &B::AccelerationStructure,
-        mode: acceleration_structure::CopyMode,
     );
 
-    /// TODO docs
+    /// Write some property
     unsafe fn write_acceleration_structures_properties(
         &self,
         accel_structs: &[&B::AccelerationStructure],

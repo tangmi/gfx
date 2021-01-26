@@ -703,15 +703,20 @@ pub trait Device<B: Backend>: fmt::Debug + Any + Send + Sync {
     ) -> acceleration_structure::DeviceAddress;
 
     // TODO(host-commands)
+    // TODO(cpu-repr)
     // - build_acceleration_structures
     // - copy_acceleration_structure
     // - copy_acceleration_structure_to_memory
     // - copy_memory_to_acceleration_structure
     // - write_acceleration_structures_properties
 
-    // TODO for checking if a serialized blob is valid with the current driver version. DX12 docs say this is for PIX tooling and building a as from scratch is "likely to be faster than loading one from disk" (https://docs.microsoft.com/en-us/windows/win32/api/d3d12/ne-d3d12-d3d12_raytracing_acceleration_structure_copy_mode). The Vulkan spec/literature doesn't mention perf implications of serialization.
-    // TODO(as-serialization)
-    // - get_device_acceleration_structure_compatibility
+    /// Determine if a previously serialized acceleration structure (e.g. loaded from disk) is compatible with the current device.
+    ///
+    /// `version_header` is the first 32 bytes of a serialized acceleration struct. If you have a `&[u8]` from loading an acceleration structure, consider using `try_into()` to convert to `&[u8; 32]`.
+    unsafe fn get_device_acceleration_structure_compatibility(
+        &self,
+        version_header: &[u8; 32],
+    ) -> acceleration_structure::Compatibility;
 
     /// Wait for all queues associated with this device to idle.
     ///

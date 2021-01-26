@@ -27,6 +27,7 @@ extern crate log;
 extern crate objc;
 
 #[cfg(not(feature = "use-rtld-next"))]
+use ash::Entry;
 use ash::{
     extensions::{
         self,
@@ -1693,6 +1694,24 @@ impl RawDevice {
                     .object_name(name_cstr),
             );
         }
+    }
+
+    pub(crate) unsafe fn get_buffer_device_address(
+        &self,
+        buffer: &native::Buffer,
+        offset: hal::buffer::Offset,
+    ) -> vk::DeviceAddress {
+        self.extension_fns
+            .buffer_device_address
+            .as_ref()
+            .expect("TODO msg")
+            .get_buffer_device_address_khr(
+                self.raw.handle(),
+                &vk::BufferDeviceAddressInfo::builder()
+                    .buffer(buffer.raw)
+                    .build(),
+            )
+            + offset
     }
 }
 

@@ -1901,6 +1901,31 @@ impl d::Device<B> for Device {
         )
     }
 
+    unsafe fn get_device_acceleration_structure_compatibility(
+        &self,
+        serialized_accel_struct: &[u8; 32],
+    ) -> hal::acceleration_structure::Compatibility {
+        match self
+            .shared
+            .extension_fns
+            .acceleration_structure
+            .as_ref()
+            .expect("TODO msg")
+            .get_device_acceleration_structure_compatibility(
+                self.shared.raw.handle(),
+                &vk::AccelerationStructureVersionInfoKHR::builder()
+                    .version_data(serialized_accel_struct),
+            ) {
+            vk::AccelerationStructureCompatibilityKHR::COMPATIBLE => {
+                hal::acceleration_structure::Compatibility::Compatible
+            }
+            vk::AccelerationStructureCompatibilityKHR::INCOMPATIBLE => {
+                hal::acceleration_structure::Compatibility::Incompatible
+            }
+            _ => unreachable!(),
+        }
+    }
+
     unsafe fn destroy_query_pool(&self, pool: n::QueryPool) {
         self.shared.raw.destroy_query_pool(pool.0, None);
     }
@@ -2076,9 +2101,9 @@ impl d::Device<B> for Device {
         accel_struct: &mut n::AccelerationStructure,
         name: &str,
     ) {
-        self.set_object_name(
+        self.shared.set_object_name(
             vk::ObjectType::ACCELERATION_STRUCTURE_KHR,
-            accel_struct.0.as_raw(),
+            accel_struct.0,
             name,
         )
     }

@@ -477,6 +477,13 @@ impl device::Device<Backend> for Device {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
+    unsafe fn get_device_acceleration_structure_compatibility(
+        &self,
+        _version_header: &[u8; 32],
+    ) -> hal::acceleration_structure::Compatibility {
+        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
+    }
+
     unsafe fn map_memory(
         &self,
         memory: &mut Memory,
@@ -953,34 +960,23 @@ impl command::CommandBuffer<Backend> for CommandBuffer {
         unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
-    unsafe fn build_acceleration_structures<'a, I>(&self, descs: I)
-    where
-        I: IntoIterator<
-            Item = &'a (
-                &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
-                // BuildRangeDesc array len must equal BuildDesc.geometry.geometries' len
-                &'a [hal::acceleration_structure::BuildRangeDesc],
-            ),
-        >,
-        I::IntoIter: ExactSizeIterator,
-    {
-        todo!()
+    unsafe fn build_acceleration_structure<'a>(
+        &self,
+        _desc: &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
+        _ranges: &'a [hal::acceleration_structure::BuildRangeDesc],
+    ) {
+        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
-    unsafe fn build_acceleration_structures_indirect<'a, I>(&self, descs: I)
-    where
-        I: IntoIterator<
-            Item = &'a (
-                &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
-                &'a Buffer,
-                hal::buffer::Offset,
-                hal::buffer::Stride,
-                &'a [u32],
-            ),
-        >,
-        I::IntoIter: ExactSizeIterator,
-    {
-        todo!()
+    unsafe fn build_acceleration_structure_indirect<'a>(
+        &self,
+        _desc: &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
+        _buffer: &'a Buffer,
+        _offset: hal::buffer::Offset,
+        _stride: hal::buffer::Stride,
+        _max_primitive_counts: &'a [u32],
+    ) {
+        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
     unsafe fn copy_acceleration_structure(
@@ -989,27 +985,25 @@ impl command::CommandBuffer<Backend> for CommandBuffer {
         _dst: &(),
         _mode: hal::acceleration_structure::CopyMode,
     ) {
-        todo!()
+        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
-    unsafe fn copy_acceleration_structure_to_memory(
+    unsafe fn serialize_acceleration_structure_to_memory(
         &self,
         _src: &(),
         _dst_buffer: &Buffer,
         _dst_offset: hal::buffer::Offset,
-        _mode: hal::acceleration_structure::CopyMode,
     ) {
-        todo!()
+        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
-    unsafe fn copy_memory_to_acceleration_structure(
+    unsafe fn deserialize_memory_to_acceleration_structure(
         &self,
         _src_buffer: &Buffer,
         _src_offset: hal::buffer::Offset,
         _dst: &(),
-        _mode: hal::acceleration_structure::CopyMode,
     ) {
-        todo!()
+        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
     unsafe fn write_acceleration_structures_properties(
@@ -1019,7 +1013,7 @@ impl command::CommandBuffer<Backend> for CommandBuffer {
         _pool: &(),
         _first_query: u32,
     ) {
-        todo!()
+        unimplemented!("{}", NOT_SUPPORTED_MESSAGE)
     }
 
     unsafe fn push_graphics_constants(

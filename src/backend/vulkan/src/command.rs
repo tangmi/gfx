@@ -1059,88 +1059,69 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
         )
     }
 
-    unsafe fn build_acceleration_structures<'a, I>(&self, descs: I)
-    where
-        I: IntoIterator<
-            Item = &'a (
-                &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
-                // BuildRangeDesc array len must equal BuildDesc.geometry.geometries' len
-                &'a [hal::acceleration_structure::BuildRangeDesc],
-            ),
-        >,
-        I::IntoIter: ExactSizeIterator,
-    {
-        let mut infos = Vec::new();
-        let mut build_range_infos = Vec::new();
+    unsafe fn build_acceleration_structure<'a>(
+        &self,
+        desc: &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
+        ranges: &'a [hal::acceleration_structure::BuildRangeDesc],
+    ) {
+        let info = vk::AccelerationStructureBuildGeometryInfoKHR::builder()
+            .ty(conv::map_acceleration_structure_type(desc.geometry.ty))
+            .flags(conv::map_acceleration_structure_flags(desc.geometry.flags))
+            .mode(if desc.src.is_some() {
+                vk::BuildAccelerationStructureModeKHR::UPDATE
+            } else {
+                vk::BuildAccelerationStructureModeKHR::BUILD
+            })
+            .src_acceleration_structure(desc.src.map(|a| a.0).unwrap_or_default())
+            .dst_acceleration_structure(desc.dst.0)
+            .geometries(
+                desc.geometry
+                    .geometries
+                    .iter()
+                    .map(|&geometry| conv::map_geometry(&self.device, geometry))
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )
+            .scratch_data(vk::DeviceOrHostAddressKHR {
+                device_address: self
+                    .device
+                    .get_buffer_device_address(desc.scratch, desc.scratch_offset),
+            })
+            .build();
 
-        for desc in descs {
-            infos.push(
-                vk::AccelerationStructureBuildGeometryInfoKHR::builder()
-                    .ty(conv::map_acceleration_structure_type(desc.0.geometry.ty))
-                    .flags(conv::map_acceleration_structure_flags(
-                        desc.0.geometry.flags,
-                    ))
-                    .mode(if desc.0.src.is_some() {
-                        vk::BuildAccelerationStructureModeKHR::UPDATE
-                    } else {
-                        vk::BuildAccelerationStructureModeKHR::BUILD
-                    })
-                    .src_acceleration_structure(desc.0.src.map(|a| a.0).unwrap_or_default())
-                    .dst_acceleration_structure(desc.0.dst.0)
-                    .geometries(
-                        desc.0
-                            .geometry
-                            .geometries
-                            .iter()
-                            .map(|&geometry| conv::map_geometry(&self.device, geometry))
-                            .collect::<Vec<_>>()
-                            .as_slice(),
-                    )
-                    .scratch_data(conv::map_device_address(
-                        &self.device,
-                        desc.0.scratch,
-                        desc.0.scratch_offset,
-                    ))
-                    .build(),
-            );
-
-            build_range_infos.push(
-                // BuildRangeDesc and VkAccelerationStructureBuildRangeInfoKHR are the same layout
-                // TODO does this work with slices (which are fat pointers)? this could very likely be a bug in more complex scenarios.
-                mem::transmute::<&[hal::acceleration_structure::BuildRangeDesc], &[vk::AccelerationStructureBuildRangeInfoKHR]>(desc.1)
-
-                // desc.1.iter().map(|build_range_desc|
-                //     vk::AccelerationStructureBuildRangeInfoKHR::builder()
-                //         .primitive_count(build_range_desc)
-                //         // .primitive_offset()
-                //         // .first_vertex()
-                //         // .transform_offset()
-                //         .build(),
-                // ),
-            );
-        }
+        let build_range_infos = mem::transmute::<
+            &[hal::acceleration_structure::BuildRangeDesc],
+            &[vk::AccelerationStructureBuildRangeInfoKHR],
+        >(ranges);
 
         self.device
             .extension_fns
             .acceleration_structure
             .as_ref()
             .expect("TODO msg")
-            .cmd_build_acceleration_structures(self.raw, &infos, build_range_infos.as_slice());
+            .cmd_build_acceleration_structures(self.raw, &[info], &[build_range_infos]);
     }
 
-    unsafe fn build_acceleration_structures_indirect<'a, I>(&self, descs: I)
-    where
-        I: IntoIterator<
-            Item = &'a (
-                &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
-                &'a n::Buffer,
-                buffer::Offset,
-                buffer::Stride,
-                &'a [u32],
-            ),
-        >,
-        I::IntoIter: ExactSizeIterator,
-    {
+    unsafe fn build_acceleration_structure_indirect<'a>(
+        &self,
+        desc: &'a hal::acceleration_structure::BuildDesc<'a, Backend>,
+        buffer: &'a n::Buffer,
+        offset: buffer::Offset,
+        stride: buffer::Stride,
+        max_primitive_counts: &'a [u32],
+    ) {
+        // self.device
+        //     .extension_fns
+        //     .acceleration_structure
+        //     .as_ref()
+        //     .expect("TODO msg")
+        //     .cmd_build_acceleration_structures_indirect(
+        //         self.raw,
+        //         &[vk::AccelerationStructureBuildGeometryInfoKHR::builder().build()],
+        //         &[self.device.get_buffer_device_address(buffer, offset)],
+        //         &[stride],
+        //         &[max_primitive_counts],
+        //     );
         todo!()
     }
 
@@ -1162,27 +1143,57 @@ impl com::CommandBuffer<Backend> for CommandBuffer {
                     .dst(dst.0)
                     .mode(conv::map_acceleration_structure_copy_mode(mode))
                     .build(),
-            )
+            );
     }
 
-    unsafe fn copy_acceleration_structure_to_memory(
+    unsafe fn serialize_acceleration_structure_to_memory(
         &self,
         src: &n::AccelerationStructure,
         dst_buffer: &n::Buffer,
         dst_offset: buffer::Offset,
-        mode: hal::acceleration_structure::CopyMode,
     ) {
-        todo!()
+        self.device
+            .extension_fns
+            .acceleration_structure
+            .as_ref()
+            .expect("TODO msg")
+            .cmd_copy_acceleration_structure_to_memory(
+                self.raw,
+                &vk::CopyAccelerationStructureToMemoryInfoKHR::builder()
+                    .src(src.0)
+                    .dst(vk::DeviceOrHostAddressKHR {
+                        device_address: self
+                            .device
+                            .get_buffer_device_address(dst_buffer, dst_offset),
+                    })
+                    .mode(vk::CopyAccelerationStructureModeKHR::SERIALIZE)
+                    .build(),
+            );
     }
 
-    unsafe fn copy_memory_to_acceleration_structure(
+    unsafe fn deserialize_memory_to_acceleration_structure(
         &self,
         src_buffer: &n::Buffer,
         src_offset: buffer::Offset,
         dst: &n::AccelerationStructure,
-        mode: hal::acceleration_structure::CopyMode,
     ) {
-        todo!()
+        self.device
+            .extension_fns
+            .acceleration_structure
+            .as_ref()
+            .expect("TODO msg")
+            .cmd_copy_memory_to_acceleration_structure(
+                self.raw,
+                &vk::CopyMemoryToAccelerationStructureInfoKHR::builder()
+                    .src(vk::DeviceOrHostAddressConstKHR {
+                        device_address: self
+                            .device
+                            .get_buffer_device_address(src_buffer, src_offset),
+                    })
+                    .dst(dst.0)
+                    .mode(vk::CopyAccelerationStructureModeKHR::DESERIALIZE)
+                    .build(),
+            );
     }
 
     unsafe fn write_acceleration_structures_properties(

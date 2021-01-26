@@ -70,10 +70,9 @@ pub enum Type {
     /// Timestamp query. Timestamps can be recorded to the
     /// query pool by calling `write_timestamp()`.
     Timestamp,
-    // TODO(as-serialization)
-    /// TODO docs
+    /// The required size of the destination acceleration structure when copied with `CopyMode::Compact`.
     AccelerationStructureCompactedSize,
-    /// TODO docs
+    /// The required size of the destination buffer when serialized.
     AccelerationStructureSerializationSize,
 }
 

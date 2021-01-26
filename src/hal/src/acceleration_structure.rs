@@ -417,6 +417,12 @@ mod struct_size_tests {
         assert_eq!(std::mem::size_of::<Instance>(), 64);
         assert_eq!(std::mem::size_of::<[Instance; 2]>(), 128);
     }
+
+    #[test]
+    fn build_range_desc() {
+        assert_eq!(std::mem::size_of::<BuildRangeDesc>(), 16);
+        assert_eq!(std::mem::size_of::<[BuildRangeDesc; 2]>(), 32);
+    }
 }
 
 /// The size requirements describing how big to make the buffers needed to create an acceleration structure.
@@ -435,14 +441,8 @@ pub struct SizeRequirements {
 pub enum CopyMode {
     /// Creates a copy of the source acceleration structure to the destination. Both must have been created with the same parameters.
     Copy,
-
     /// Creates a more compact version of the source acceleration structure into the destination. The destination acceleration structure must be at least large enough, as queried by `query::Type::AccelerationStructureCompactedSize`.
     Compact,
-    // TODO(as-serialization)
-    // /// TODO docs
-    // Serialize,
-    // /// TODO docs
-    // Deserialize,
 }
 
 /// TODO better docs, read notes from https://www.khronos.org/registry/vulkan/specs/1.2-extensions/html/vkspec.html#VkAccelerationStructureBuildRangeInfoKHR
@@ -460,4 +460,13 @@ pub struct BuildRangeDesc {
     pub first_vertex: u32,
     /// The additional offset into the transform buffer, in the case of a triangles geometry.
     pub transform_offset: u32,
+}
+
+/// Serialized acceleration structure compatibility.
+#[derive(Debug)]
+pub enum Compatibility {
+    /// The serialized acceleration structure is compatible with the current device.
+    Compatible,
+    /// The serialized acceleration structure is not compatible with the current device.
+    Incompatible,
 }
