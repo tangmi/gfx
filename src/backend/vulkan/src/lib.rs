@@ -32,7 +32,7 @@ use ash::{
     extensions::{
         self,
         ext::{DebugReport, DebugUtils},
-        khr::{AccelerationStructure, DrawIndirectCount, RayTracingPipeline, Swapchain},
+        khr::{AccelerationStructure, DrawIndirectCount, RayQuery, Swapchain},
         nv::MeshShader,
     },
     version::{DeviceV1_0, EntryV1_0, InstanceV1_0},
@@ -684,7 +684,6 @@ pub struct DeviceCreationFeatures {
     imageless_framebuffers: Option<vk::PhysicalDeviceImagelessFramebufferFeaturesKHR>,
     buffer_device_address: Option<vk::PhysicalDeviceBufferDeviceAddressFeaturesKHR>,
     acceleration_structure: Option<vk::PhysicalDeviceAccelerationStructureFeaturesKHR>,
-    ray_tracing_pipeline: Option<vk::PhysicalDeviceRayTracingPipelineFeaturesKHR>,
 }
 
 impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
@@ -776,12 +775,11 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 enabled_extensions.push(extensions::khr::DeferredHostOperations::name());
             }
 
-            if requested_features.contains(Features::RAY_TRACING_PIPELINE) {
-                enabled_extensions.push(RayTracingPipeline::name());
+            if requested_features.contains(Features::RAY_QUERY) {
+                enabled_extensions.push(RayQuery::name());
 
-                // TODO better handling of extension dependencies? These are required by VK_KHR_ray_tracing_pipeline
+                // TODO better handling of extension dependencies? These are required by VK_KHR_ray_query
                 enabled_extensions.push(vk::KhrSpirv14Fn::name());
-                enabled_extensions.push(vk::KhrShaderFloatControlsFn::name());
             }
 
             enabled_extensions
@@ -843,13 +841,6 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
             } else {
                 info
             };
-
-            let info =
-                if let Some(ref mut ray_tracing_pipeline) = enabled_features.ray_tracing_pipeline {
-                    info.push_next(ray_tracing_pipeline)
-                } else {
-                    info
-                };
 
             match self.instance.inner.create_device(self.handle, &info, None) {
                 Ok(device) => device,
@@ -1069,7 +1060,7 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
         let mut descriptor_indexing_features = None;
         let mut buffer_device_address = None;
         let mut acceleration_structure_features = None;
-        let mut ray_tracing_pipeline_features = None;
+        let mut ray_query_features = None;
         let features = if let Some(ref get_device_properties) =
             self.instance.get_physical_device_properties
         {
@@ -1103,11 +1094,10 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 mut_ref.p_next = mem::replace(&mut features2.p_next, mut_ref as *mut _ as *mut _);
             }
 
-            if self.supports_extension(RayTracingPipeline::name()) {
-                ray_tracing_pipeline_features =
-                    Some(vk::PhysicalDeviceRayTracingPipelineFeaturesKHR::builder().build());
+            if self.supports_extension(RayQuery::name()) {
+                ray_query_features = Some(vk::PhysicalDeviceRayQueryFeaturesKHR::builder().build());
 
-                let mut_ref = ray_tracing_pipeline_features.as_mut().unwrap();
+                let mut_ref = ray_query_features.as_mut().unwrap();
                 mut_ref.p_next = mem::replace(&mut features2.p_next, mut_ref as *mut _ as *mut _);
             }
 
@@ -1346,26 +1336,9 @@ impl adapter::PhysicalDevice<Backend> for PhysicalDevice {
                 // TODO
             }
         }
-        if let Some(ray_tracing_pipeline_features) = ray_tracing_pipeline_features {
-            if ray_tracing_pipeline_features.ray_tracing_pipeline == vk::TRUE {
-                bits |= Features::RAY_TRACING_PIPELINE;
-            }
-            if ray_tracing_pipeline_features.ray_tracing_pipeline_shader_group_handle_capture_replay
-                == vk::TRUE
-            {
-                // bits |= Features::RAY_TRACING_PIPELINE_SHADER_GROUP_HANDLE_CAPTURE_REPLAY;
-            }
-            if ray_tracing_pipeline_features
-                .ray_tracing_pipeline_shader_group_handle_capture_replay_mixed
-                == vk::TRUE
-            {
-                // bits |= Features::RAY_TRACING_PIPELINE_SHADER_GROUP_HANDLE_CAPTURE_REPLAY_MIXED;
-            }
-            if ray_tracing_pipeline_features.ray_tracing_pipeline_trace_rays_indirect == vk::TRUE {
-                // bits |= Features::RAY_TRACING_PIPELINE_TRACE_RAYS_INDIRECT;
-            }
-            if ray_tracing_pipeline_features.ray_traversal_primitive_culling == vk::TRUE {
-                // bits |= Features::RAY_TRAVERSAL_PRIMITIVE_CULLING;
+        if let Some(ray_query_features) = ray_query_features {
+            if ray_query_features.ray_query == vk::TRUE {
+                bits |= Features::RAY_QUERY;
             }
         }
         if let Some(buffer_device_address) = buffer_device_address {

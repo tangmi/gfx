@@ -150,8 +150,7 @@ fn main() {
 
     let adapter = adapters.remove(0);
 
-    let required_features =
-        hal::Features::ACCELERATION_STRUCTURE | hal::Features::RAY_TRACING_PIPELINE;
+    let required_features = hal::Features::ACCELERATION_STRUCTURE; // | hal::Features::RAY_QUERY;
 
     assert!(adapter
         .physical_device

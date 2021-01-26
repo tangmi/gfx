@@ -286,11 +286,8 @@ bitflags! {
         // TODO this is not supported for other resource types yet
         // const ACCELERATION_STRUCTURE_UPDATE_AFTER_BIND = 0x0010 << 112;
 
-        ///
-        const RAY_TRACING_PIPELINE = 0x0020 << 112;
-
-        // ///
-        // const RAY_QUERY = 0x0040 << 112;
+        /// Support ray query functionality in shaders.
+        const RAY_QUERY = 0x0020 << 112;
     }
 }
 
