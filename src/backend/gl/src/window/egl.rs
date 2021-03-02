@@ -344,11 +344,8 @@ impl hal::Instance<crate::Backend> for Instance {
 
         let mut inner = self.inner.lock();
         let mut wl_window = None;
-        #[cfg(not(any(target_os = "android", target_os = "macos")))]
-        let (mut temp_xlib_handle, mut temp_xcb_handle): (
-            *mut std::ffi::c_void,
-            *mut std::ffi::c_void,
-        );
+        let mut temp_xlib_handle: u64;
+        let mut temp_xcb_handle: u32;
         let native_window_ptr = match has_handle.raw_window_handle() {
             #[cfg(any(
                 target_os = "linux",
