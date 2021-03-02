@@ -20,6 +20,8 @@ pub struct Swapchain {
 pub struct Instance {
     wsi_library: Option<libloading::Library>,
     inner: Mutex<Inner>,
+    /// Indicates that this client can create a surface with `EGL_GL_COLORSPACE_SRGB`.
+    supports_srgb_surface: bool,
 }
 
 #[derive(Debug)]
@@ -229,10 +231,25 @@ impl Drop for Inner {
 
 impl hal::Instance<crate::Backend> for Instance {
     fn create(_: &str, _: u32) -> Result<Self, hal::UnsupportedBackend> {
+        #[cfg(not(windows))]
         let egl = match unsafe { egl::DynamicInstance::<egl::EGL1_4>::load_required() } {
             Ok(egl) => Starc::new(egl),
             Err(e) => {
                 log::warn!("Unable to open libEGL.so: {:?}", e);
+                return Err(hal::UnsupportedBackend);
+            }
+        };
+
+        #[cfg(windows)]
+        let egl = match unsafe {
+            egl::DynamicInstance::<egl::EGL1_4>::load_required_from_filename("libEGL")
+        } {
+            Ok(egl) => Starc::new(egl),
+            Err(e) => {
+                log::warn!("Unable to open libEGL.dll: {:?}", e);
+                // These DLLs can be obtained by building ANGLE and copying the files next to your `.exe`.
+                // https://chromium.googlesource.com/angle/angle/+/refs/heads/master/doc/DevSetup.md
+                log::warn!("Ensure that libEGL.dll and libGLESv2.dll are available.");
                 return Err(hal::UnsupportedBackend);
             }
         };
@@ -287,6 +304,8 @@ impl hal::Instance<crate::Backend> for Instance {
         let inner = Inner::create(egl.clone(), display, wsi_library.as_ref())?;
 
         Ok(Instance {
+            supports_srgb_surface: inner.version >= (1, 5)
+                || client_ext_str.contains(&"EGL_KHR_gl_colorspace"),
             inner: Mutex::new(inner),
             wsi_library,
         })
@@ -326,21 +345,42 @@ impl hal::Instance<crate::Backend> for Instance {
         let mut inner = self.inner.lock();
         let mut wl_window = None;
         #[cfg(not(any(target_os = "android", target_os = "macos")))]
-        let (mut temp_xlib_handle, mut temp_xcb_handle);
+        let (mut temp_xlib_handle, mut temp_xcb_handle): (
+            *mut std::ffi::c_void,
+            *mut std::ffi::c_void,
+        );
         let native_window_ptr = match has_handle.raw_window_handle() {
-            #[cfg(not(any(target_os = "android", target_os = "macos")))]
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
             Rwh::Xlib(handle) => {
                 temp_xlib_handle = handle.window;
                 &mut temp_xlib_handle as *mut _ as *mut std::ffi::c_void
             }
-            #[cfg(not(any(target_os = "android", target_os = "macos")))]
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
             Rwh::Xcb(handle) => {
                 temp_xcb_handle = handle.window;
                 &mut temp_xcb_handle as *mut _ as *mut std::ffi::c_void
             }
             #[cfg(target_os = "android")]
             Rwh::Android(handle) => handle.a_native_window as *mut _ as *mut std::ffi::c_void,
-            #[cfg(not(any(target_os = "android", target_os = "macos")))]
+            #[cfg(any(
+                target_os = "linux",
+                target_os = "dragonfly",
+                target_os = "freebsd",
+                target_os = "netbsd",
+                target_os = "openbsd"
+            ))]
             Rwh::Wayland(handle) => {
                 /* Wayland displays are not sharable between surfaces so if the
                  * surface we receive from this handle is from a different
@@ -386,24 +426,74 @@ impl hal::Instance<crate::Backend> for Instance {
                 wl_window = Some(result);
                 result
             }
+            #[cfg(target_os = "windows")]
+            Rwh::Windows(handle) => {
+                use std::ops::DerefMut;
+
+                const EGL_PLATFORM_ANGLE_ANGLE: u32 = 0x3202;
+                const EGL_PLATFORM_ANGLE_TYPE_ANGLE: egl::Attrib = 0x320;
+                const EGL_PLATFORM_ANGLE_MAX_VERSION_MAJOR_ANGLE: egl::Attrib = 0x320;
+                const EGL_PLATFORM_ANGLE_MAX_VERSION_MINOR_ANGLE: egl::Attrib = 0x320;
+                const EGL_PLATFORM_ANGLE_DEBUG_LAYERS_ENABLED_ANGLE: egl::Attrib = 0x345;
+                const EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE: egl::Attrib = 0x3206;
+
+                let mut display_attributes = Vec::new();
+                display_attributes.push(EGL_PLATFORM_ANGLE_TYPE_ANGLE);
+                display_attributes.push(EGL_PLATFORM_ANGLE_TYPE_DEFAULT_ANGLE);
+                display_attributes.push(EGL_PLATFORM_ANGLE_MAX_VERSION_MAJOR_ANGLE);
+                display_attributes.push(egl::DONT_CARE as _);
+                display_attributes.push(EGL_PLATFORM_ANGLE_MAX_VERSION_MINOR_ANGLE);
+                display_attributes.push(egl::DONT_CARE as _);
+                if cfg!(debug_assertions) {
+                    display_attributes.push(EGL_PLATFORM_ANGLE_DEBUG_LAYERS_ENABLED_ANGLE);
+                    display_attributes.push(egl::TRUE as _);
+                }
+                display_attributes.push(egl::ATTRIB_NONE);
+
+                let native_display =
+                    ptr::NonNull::new(winapi::um::winuser::GetDC(handle.hwnd as *mut _))
+                        .ok_or(w::InitError::UnsupportedWindowHandle)?;
+
+                let display = inner
+                    .egl
+                    .upcast::<egl::EGL1_5>()
+                    .unwrap()
+                    .get_platform_display(
+                        EGL_PLATFORM_ANGLE_ANGLE,
+                        native_display.as_ptr() as *mut raw::c_void,
+                        &display_attributes,
+                    )
+                    .unwrap();
+
+                let new_inner =
+                    Inner::create(inner.egl.clone(), display, self.wsi_library.as_ref())
+                        .map_err(|_| w::InitError::UnsupportedWindowHandle)?;
+
+                let old_inner = std::mem::replace(inner.deref_mut(), new_inner);
+                drop(old_inner);
+
+                handle.hwnd
+            }
             other => {
                 error!("Unsupported window: {:?}", other);
                 return Err(w::InitError::UnsupportedWindowHandle);
             }
         };
 
-        let mut attributes = vec![
-            egl::RENDER_BUFFER as usize,
-            if cfg!(target_os = "android") {
-                egl::BACK_BUFFER as usize
-            } else {
-                egl::SINGLE_BUFFER as usize
-            },
-        ];
-        if inner.version >= (1, 5) {
-            // Always enable sRGB in EGL 1.5
+        let mut attributes = Vec::new();
+        attributes.push(egl::RENDER_BUFFER as usize);
+        attributes.push(if cfg!(target_os = "android") || cfg!(windows) {
+            egl::BACK_BUFFER as usize
+        } else {
+            egl::SINGLE_BUFFER as usize
+        });
+        if self.supports_srgb_surface && !cfg!(windows) {
             attributes.push(egl::GL_COLORSPACE as usize);
             attributes.push(egl::GL_COLORSPACE_SRGB as usize);
+        } else {
+            // Note: ANGLE does not support `GL_COLORSPACE_SRGB`.
+            // https://bugs.chromium.org/p/angleproject/issues/detail?id=1328
+            log::warn!("sRGB format default framebuffers not supported");
         }
         attributes.push(egl::ATTRIB_NONE);
 
@@ -429,7 +519,7 @@ impl hal::Instance<crate::Backend> for Instance {
                     Some(&attributes_i32),
                 )
                 .map_err(|e| {
-                    log::warn!("Error in create_platform_window_surface: {:?}", e);
+                    log::warn!("Error in create_window_surface: {:?}", e);
                     w::InitError::UnsupportedWindowHandle
                 })
         }?;

@@ -73,3 +73,6 @@ features = [
     "WebGlTexture",
     "Window",
 ]
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["winuser"] }
