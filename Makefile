@@ -13,8 +13,9 @@ else
 endif
 
 ifeq ($(OS),Windows_NT)
-	EXCLUDES+= --exclude gfx-backend-metal --exclude gfx-backend-gl
+	EXCLUDES+= --exclude gfx-backend-metal
 	FEATURES_HAL=vulkan
+	FEATURES_GL=gl
 	ifeq ($(TARGET),x86_64-pc-windows-gnu)
 		# No d3d12 support on GNU windows ATM
 		# context: https://github.com/gfx-rs/gfx/pull/1417

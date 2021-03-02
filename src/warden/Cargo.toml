@@ -57,7 +57,7 @@ version = "0.7"
 features = ["auto-capture"]
 optional = true
 
-[target.'cfg(all(unix, not(target_os = "ios"), not(target_os = "macos"), not(target_os = "android")))'.dependencies.gfx-backend-gl]
+[target.'cfg(any(windows, all(unix, not(target_os = "ios"), not(target_os = "macos"), not(target_os = "android"))))'.dependencies.gfx-backend-gl]
 path = "../../src/backend/gl"
 version = "0.7"
 optional = true
