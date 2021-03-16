@@ -469,6 +469,16 @@ impl hal::Instance<Backend> for Instance {
             if cfg!(debug_assertions) {
                 layers.push(CStr::from_bytes_with_nul(b"VK_LAYER_KHRONOS_validation\0").unwrap());
             }
+            if let Ok(devsim_filename) = std::env::var("VK_DEVSIM_FILENAME") {
+                // https://www.saschawillems.de/blog/2017/08/19/the-vulkan-device-simulation-layer/
+                warn!(
+                    "Using VK_LAYER_LUNARG_device_simulation with {}",
+                    devsim_filename
+                );
+                layers.push(
+                    CStr::from_bytes_with_nul(b"VK_LAYER_LUNARG_device_simulation\0").unwrap(),
+                );
+            }
 
             // Only keep available layers.
             layers.retain(|&layer| {
